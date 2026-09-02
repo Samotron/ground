@@ -141,6 +141,34 @@ It is read-only and binds to loopback only. Editing goes through the CLI, where
 it gets validated and attributed to a named author, and a ground model is not
 something to publish to the office network because someone typed `gm ui`.
 
+## The browser editor
+
+`editor/` is the static counterpart to `gm ui`, designed for GitHub Pages. It
+keeps the section drawing and validation-led experience, then adds forms for
+file metadata, models, layers, material properties and advanced JSON fields.
+Nothing is uploaded: SQLite and JSON are opened in browser memory.
+
+It accepts both kinds of ground-model document:
+
+- A `.gm` SQLite repository is downloaded again with its history intact and
+  the edited materialised tables as its uncommitted working tree. Continue with
+  `gm diff`, `gm validate` and `gm commit` locally.
+- A `.gm.json` interchange document is downloaded as stable, sorted JSON. It
+  represents one revision and therefore has no repository history to preserve.
+
+Run it locally with `just editor`, or directly:
+
+```console
+$ cd editor
+$ npm install
+$ npm run dev
+```
+
+The Pages workflow tests and builds the app on pushes to `main`. In the GitHub
+repository settings, choose **GitHub Actions** as the Pages source once; after
+that deployment is automatic. The Vite base path is relative, so the build
+works at both a project Pages URL and a custom domain.
+
 ## What the format guarantees
 
 - **A revision reads back exactly.** Round-tripping is byte-stable.
@@ -195,6 +223,7 @@ With [just](https://just.systems), `just` on its own lists everything:
 | `just examples` | check every example still imports and validates |
 | `just uat` / `just walk` | the walkthrough, or the same pausing between steps |
 | `just ui` / `just sandbox` | the web UI, or a shell in the demo sandbox |
+| `just editor` / `just editor-check` | browser editor, or its test + build gate |
 | `just gm ...` | run gm against the sandbox, e.g. `just gm show CH-150` |
 
 ## Trying it out

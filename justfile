@@ -73,6 +73,11 @@ check: lint test
 [group('check')]
 ci: lint test examples uat
 
+# Build and test the browser editor deployed to GitHub Pages.
+[group('check')]
+editor-check:
+    cd editor && npm ci && npm test && npm run build
+
 # Apply what clippy and rustfmt can fix on their own.
 [group('check')]
 fix:
@@ -128,6 +133,11 @@ walk:
 [group('demo')]
 ui:
     ./uat/run.sh ui
+
+# Run the browser editor locally with hot reload.
+[group('demo')]
+editor:
+    cd editor && npm install && npm run dev
 
 # A shell in the sandbox, with gm on PATH and $GM_FILE set.
 [group('demo')]

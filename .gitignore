@@ -4,3 +4,5 @@
 *.gm-wal
 *.gm-shm
 /uat/workspace/
+/editor/node_modules/
+/editor/dist/
