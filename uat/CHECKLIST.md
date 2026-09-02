@@ -90,14 +90,42 @@ tree in a state that will not commit.
 | 4.4 | Edits to **different** chainages merge with no questions, and both survive. | Scenario 7 | |
 | 4.5 | Edits to the **same** chainage conflict, nothing is written, and the working tree stays clean. | Scenario 8 | |
 | 4.6 | The merge commit shows in `gm log` tagged as a merge, with two parents. | Scenario 7 / web UI | |
+| 4.7 | `gm clone http://...` produces a working copy with the full history. | Scenario 9 | |
+| 4.8 | A push reports a small object count — what changed, not the whole file. | Scenario 9 | |
+| 4.9 | The served file picks up the push without being restarted. | Scenario 9 | |
 
 **Judgement call:** on a conflict you currently resolve by hand — check out one
 side, or edit and re-commit. Is that acceptable, or do you need assisted
 resolution before this is usable on a live job?
 
-**Known limit to confirm you can live with:** a remote is a **filesystem path**.
-This works over a shared drive or a synced folder, but there is no network
-transport yet.
+### Network sync, and its limits
+
+A remote may be a filesystem path or an `http://` URL. Worth satisfying
+yourself about the guard rails, all of which `just test-cli` also checks:
+
+```console
+just sandbox
+gm serve --port 8799 &                 # read-only by default
+gm clone http://127.0.0.1:8799 copy.gm
+# make a commit in copy.gm, then:
+gm -f copy.gm push                     # must refuse: no --allow-push
+gm -f copy.gm pull                      # must work: reading is fine
+```
+
+| # | Check | ✓ |
+|---|---|---|
+| 4.10 | A server without `--allow-push` refuses pushes but still serves pulls. | |
+| 4.11 | With `--token`, requests without the token are refused. | |
+| 4.12 | A push into a diverged remote is refused, not forced. | |
+| 4.13 | Two unrelated files refuse to sync with each other. | |
+| 4.14 | `gm serve` is not reachable from another machine unless `--bind` says so. | |
+
+**Known limit to confirm you can live with: there is no transport security.**
+Sync is plain HTTP. `--token` is a shared secret sent in a header; nothing is
+encrypted, and `https://` is refused rather than silently downgraded. This is
+built for a network you already trust — a LAN, a VPN, or a tunnel you put in
+front of it. If models need to cross the open internet, that is a decision to
+take now rather than later.
 
 ## 5. Integrity
 

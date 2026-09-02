@@ -25,6 +25,14 @@ export GM_AUTHOR="${GM_AUTHOR:-UAT Tester <uat@example.com>}"
 STEP=0
 FAILURES=0
 SCENARIO=0
+SERVER_PID=""
+
+# A server started mid-walkthrough must not outlive it, including on Ctrl-C.
+cleanup() {
+  [[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" 2>/dev/null
+  return 0
+}
+trap cleanup EXIT INT TERM
 
 # -- output -----------------------------------------------------------------
 
@@ -246,6 +254,43 @@ demo() {
   note ""
   note "Nothing was written. Dave still has his own value and a clean tree:"
   run "$GM" -f dave.gm status
+  pause
+
+  scenario "Sync over the network, not just the filesystem"
+  note "One person serves the file; everyone else works against the URL."
+  PORT="${GM_UAT_SERVE_PORT:-8799}"
+  # Started directly rather than through `run`: a backgrounded server would
+  # otherwise hold this script's stdout open, so anything piping the
+  # walkthrough into a pager or a file would hang waiting for EOF.
+  printf '\n%s\n' "${CYAN}\$ $(fmt_cmd "$GM" -f a13.gm serve --port "$PORT" --allow-push)${RESET}"
+  "$GM" -f a13.gm serve --port "$PORT" --allow-push > serve.log 2>&1 &
+  SERVER_PID=$!
+  for _ in $(seq 1 60); do
+    curl -s -o /dev/null "http://127.0.0.1:$PORT/sync/info" 2>/dev/null && break
+    sleep 0.1
+  done
+  sed 's/^/  /' serve.log
+
+  note ""
+  note "What the remote says about itself:"
+  run curl -s "http://127.0.0.1:$PORT/sync/info"
+  note ""
+  note "A colleague clones over HTTP:"
+  run "$GM" clone "http://127.0.0.1:$PORT" remote-copy.gm
+  run sqlite3 remote-copy.gm \
+    "UPDATE ground_layers SET top_level = 3.60
+       WHERE material_key = 'ALLUVIUM'
+         AND ground_model_id = (SELECT id FROM ground_models WHERE model_key = 'CH-200');"
+  run "$GM" -f remote-copy.gm commit -m "CH-200: alluvium top lowered" \
+      --author "Erin <erin@example.com>"
+
+  note ""
+  note "The push carries only what changed, not the whole file:"
+  run "$GM" -f remote-copy.gm push
+  run "$GM" -f a13.gm show CH-200
+
+  kill "$SERVER_PID" 2>/dev/null
+  SERVER_PID=""
   pause
 
   scenario "Integrity and interchange"

@@ -1,5 +1,6 @@
 //! `gm` — a self-contained tool for 1D ground models.
 
+mod net;
 mod render;
 mod web;
 
@@ -142,24 +143,30 @@ enum Command {
 
     /// Copy a ground-model file, history and all.
     Clone {
-        /// Path of the file to copy.
-        source: PathBuf,
+        /// Path of the file to copy, or an http:// URL of a `gm serve`.
+        source: String,
         /// Path to create. Defaults to the source's file name here.
         dest: Option<PathBuf>,
         #[arg(long, env = "GM_AUTHOR")]
         author: Option<String>,
+        #[arg(long, env = "GM_TOKEN")]
+        token: Option<String>,
     },
 
     /// Fetch from another copy and fast-forward if possible.
     Pull {
-        /// A remote name, or a path to another ground-model file.
+        /// A remote name, a path to another ground-model file, or an http:// URL.
         remote: Option<String>,
+        #[arg(long, env = "GM_TOKEN")]
+        token: Option<String>,
     },
 
     /// Send local commits to another copy.
     Push {
-        /// A remote name, or a path to another ground-model file.
+        /// A remote name, a path to another ground-model file, or an http:// URL.
         remote: Option<String>,
+        #[arg(long, env = "GM_TOKEN")]
+        token: Option<String>,
     },
 
     /// Merge a diverged revision into the current one.
@@ -173,6 +180,22 @@ enum Command {
     Ui {
         #[arg(short, long, default_value_t = 8765)]
         port: u16,
+    },
+
+    /// Serve this file for other people to pull from, and optionally push to.
+    Serve {
+        #[arg(short, long, default_value_t = 8766)]
+        port: u16,
+        /// Interface to listen on. Loopback by default; widening it is a
+        /// deliberate act, and the traffic is not encrypted.
+        #[arg(long, default_value = "127.0.0.1")]
+        bind: String,
+        /// Accept pushes. Off by default: a push writes to this file.
+        #[arg(long)]
+        allow_push: bool,
+        /// Require `Authorization: Bearer <token>` on every request.
+        #[arg(long, env = "GM_TOKEN")]
+        token: Option<String>,
     },
 
     /// Manage the named copies this file syncs with.
@@ -225,9 +248,10 @@ fn run() -> Result<()> {
         source,
         dest,
         author,
+        token,
     } = &cli.command
     {
-        return clone(source, dest.as_deref(), author.as_deref());
+        return clone(source, dest.as_deref(), author.as_deref(), token.clone());
     }
 
     let path = resolve_file(cli.file.as_deref())?;
@@ -272,13 +296,30 @@ fn run() -> Result<()> {
         Command::Export { output, rev } => export(&repo, output.as_deref(), rev.as_deref()),
         Command::Sql { query } => sql(&repo, &query),
         Command::Clone { .. } => unreachable!("handled above"),
-        Command::Pull { remote } => pull(&mut repo, remote.as_deref()),
-        Command::Push { remote } => push(&repo, remote.as_deref()),
+        Command::Pull { remote, token } => pull(&mut repo, remote.as_deref(), token),
+        Command::Push { remote, token } => push(&repo, remote.as_deref(), token),
         Command::Merge { rev, author } => merge(&mut repo, &rev, author.as_deref()),
         Command::Ui { port } => {
             // Drop our handle first: the server reopens the file per request.
             drop(repo);
-            web::serve(&path, port)
+            web::serve(&path, web::Options::local(port))
+        }
+        Command::Serve {
+            port,
+            bind,
+            allow_push,
+            token,
+        } => {
+            drop(repo);
+            web::serve(
+                &path,
+                web::Options {
+                    bind,
+                    port,
+                    allow_push,
+                    token,
+                },
+            )
         }
         Command::Remote { action } => remote(&repo, action),
     }
@@ -594,32 +635,57 @@ fn sql(repo: &Repository, query: &str) -> Result<()> {
 
 // -- sync -------------------------------------------------------------------
 
-/// Resolve a remote argument to a path. A bare name is looked up in the file's
-/// remote list; anything else is taken as a path.
-fn remote_path(repo: &Repository, arg: Option<&str>) -> Result<PathBuf> {
+/// Where a remote lives. A named remote resolves to whichever of these its
+/// stored URL turns out to be, so `gm pull origin` works the same either way.
+enum Remote {
+    File(PathBuf),
+    Http(Box<net::HttpRemote>),
+}
+
+/// Resolve a remote argument. A bare name is looked up in the file's remote
+/// list; anything else is taken as a URL if it looks like one, and a path
+/// otherwise.
+fn resolve_remote(repo: &Repository, arg: Option<&str>, token: Option<String>) -> Result<Remote> {
     let name = arg.unwrap_or("origin");
-    if let Some(url) = repo.remote_url(name)? {
-        return Ok(PathBuf::from(url));
+    let target = match repo.remote_url(name)? {
+        Some(url) => url,
+        None => match arg {
+            Some(arg) => arg.to_string(),
+            None => bail!("no remote given and none called 'origin' is configured"),
+        },
+    };
+
+    if net::HttpRemote::looks_like_url(&target) {
+        return Ok(Remote::Http(Box::new(net::HttpRemote::parse(
+            &target, token,
+        )?)));
     }
-    match arg {
-        Some(arg) => {
-            let path = PathBuf::from(arg);
-            if path.exists() {
-                Ok(path)
-            } else {
-                bail!("no remote called '{arg}', and no file at that path")
-            }
-        }
-        None => bail!("no remote given and none called 'origin' is configured"),
+    let path = PathBuf::from(&target);
+    if path.exists() {
+        Ok(Remote::File(path))
+    } else if arg.is_some_and(|a| a == target) {
+        bail!("no remote called '{target}', and no file at that path")
+    } else {
+        bail!("remote '{name}' points at {target}, which does not exist")
     }
 }
 
-fn clone(source: &Path, dest: Option<&Path>, author: Option<&str>) -> Result<()> {
+fn clone(
+    source: &str,
+    dest: Option<&Path>,
+    author: Option<&str>,
+    token: Option<String>,
+) -> Result<()> {
     let author = author
         .map(str::to_string)
         .or_else(|| std::env::var("GM_AUTHOR").ok())
         .ok_or_else(|| anyhow!("no author; pass --author or set GM_AUTHOR"))?;
 
+    if net::HttpRemote::looks_like_url(source) {
+        return http_clone(source, dest, &author, token);
+    }
+
+    let source = Path::new(source);
     let dest = match dest {
         Some(dest) => dest.to_path_buf(),
         None => PathBuf::from(
@@ -645,11 +711,108 @@ fn clone(source: &Path, dest: Option<&Path>, author: Option<&str>) -> Result<()>
     Ok(())
 }
 
-fn pull(repo: &mut Repository, remote_arg: Option<&str>) -> Result<()> {
-    let path = remote_path(repo, remote_arg)?;
-    let remote = Repository::open(&path).with_context(|| format!("opening {}", path.display()))?;
+/// Clone over HTTP.
+///
+/// The new file takes the remote's `file_id`, because that id names the project
+/// rather than the copy: without it the two would refuse to sync afterwards,
+/// which would make the clone useless for the thing it is for.
+fn http_clone(url: &str, dest: Option<&Path>, author: &str, token: Option<String>) -> Result<()> {
+    let remote = net::HttpRemote::parse(url, token)?;
+    let info = remote.info()?;
+    if info.protocol != gm_core::wire::RemoteInfo::PROTOCOL {
+        bail!(
+            "that remote speaks sync protocol {} and this build speaks {}",
+            info.protocol,
+            gm_core::wire::RemoteInfo::PROTOCOL
+        );
+    }
+    let Some(head) = info.head.clone() else {
+        bail!("{} has no commits to clone", remote.url);
+    };
 
-    match sync::pull(repo, &remote)? {
+    let dest = match dest {
+        Some(dest) => dest.to_path_buf(),
+        // Name it after the project rather than the URL, which is usually a
+        // host and port and says nothing about the job.
+        None => PathBuf::from(format!("{}.gm", slug(&info.name))),
+    };
+
+    let mut repo = Repository::create_empty(&dest, &info.file_id, author)?;
+    let objects = remote.bundle(&[])?;
+    let transferred = sync::apply_bundle(&repo, &objects)?;
+    sync::check_reachable(&repo, &head)?;
+
+    repo.set_head(&head)?;
+    let state = repo.state_at(&head)?;
+    repo.write_working(&state)?;
+    repo.set_remote("origin", &remote.url)?;
+
+    println!(
+        "cloned {} into {} ({} commits, {} objects)",
+        remote.url,
+        dest.display(),
+        transferred.commits,
+        transferred.objects
+    );
+    Ok(())
+}
+
+/// A filename-safe version of a project name.
+fn slug(name: &str) -> String {
+    let slug: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let slug = slug.trim_matches('-').replace("--", "-");
+    if slug.is_empty() {
+        "ground-model".to_string()
+    } else {
+        slug
+    }
+}
+
+fn pull(repo: &mut Repository, remote_arg: Option<&str>, token: Option<String>) -> Result<()> {
+    let outcome = match resolve_remote(repo, remote_arg, token)? {
+        Remote::File(path) => {
+            let remote =
+                Repository::open(&path).with_context(|| format!("opening {}", path.display()))?;
+            sync::pull(repo, &remote)?
+        }
+        Remote::Http(remote) => http_pull(repo, &remote)?,
+    };
+    report_pull(outcome);
+    Ok(())
+}
+
+/// Fetch over HTTP, then hand the result to the same logic a local pull uses.
+fn http_pull(repo: &mut Repository, remote: &net::HttpRemote) -> Result<sync::PullOutcome> {
+    let info = remote.info()?;
+    check_remote(repo, &info)?;
+
+    let Some(theirs) = info.head.clone() else {
+        return Ok(sync::PullOutcome::UpToDate);
+    };
+    if repo.head()? == Some(theirs.clone()) {
+        return Ok(sync::PullOutcome::UpToDate);
+    }
+
+    let objects = remote.bundle(&sync::known_commits(repo)?)?;
+    let transferred = sync::apply_bundle(repo, &objects)?;
+    // A head whose ancestry did not arrive would leave HEAD pointing at
+    // nothing, so check before touching any ref.
+    sync::check_reachable(repo, &theirs)?;
+
+    Ok(sync::integrate(repo, &theirs, transferred)?)
+}
+
+fn report_pull(outcome: sync::PullOutcome) {
+    match outcome {
         sync::PullOutcome::UpToDate => println!("already up to date"),
         sync::PullOutcome::FastForward { to, transferred } => {
             println!(
@@ -679,25 +842,90 @@ fn pull(repo: &mut Repository, remote_arg: Option<&str>) -> Result<()> {
             println!("\nrun `gm merge {}` to combine them", short_hash(&theirs));
         }
     }
+}
+
+/// Refuse to sync with something that is not the same project, or that speaks a
+/// protocol this build does not.
+fn check_remote(repo: &Repository, info: &gm_core::wire::RemoteInfo) -> Result<()> {
+    if info.protocol != gm_core::wire::RemoteInfo::PROTOCOL {
+        bail!(
+            "that remote speaks sync protocol {} and this build speaks {}",
+            info.protocol,
+            gm_core::wire::RemoteInfo::PROTOCOL
+        );
+    }
+    if info.file_id != repo.file_id() {
+        bail!(
+            "these are different projects: {} and {}. Use `gm import` to bring \
+             models across from an unrelated file.",
+            repo.file_id(),
+            info.file_id
+        );
+    }
     Ok(())
 }
 
-fn push(repo: &Repository, remote_arg: Option<&str>) -> Result<()> {
-    let path = remote_path(repo, remote_arg)?;
-    let mut remote =
-        Repository::open(&path).with_context(|| format!("opening {}", path.display()))?;
-
-    match sync::push(repo, &mut remote)? {
-        sync::PushOutcome::UpToDate => println!("already up to date"),
-        sync::PushOutcome::FastForward { to, transferred } => {
-            println!(
-                "pushed to {}: now at {} ({} commits, {} objects)",
-                path.display(),
-                short_hash(&to),
-                transferred.commits,
-                transferred.objects
-            );
+fn push(repo: &Repository, remote_arg: Option<&str>, token: Option<String>) -> Result<()> {
+    match resolve_remote(repo, remote_arg, token)? {
+        Remote::File(path) => {
+            let mut remote =
+                Repository::open(&path).with_context(|| format!("opening {}", path.display()))?;
+            match sync::push(repo, &mut remote)? {
+                sync::PushOutcome::UpToDate => println!("already up to date"),
+                sync::PushOutcome::FastForward { to, transferred } => println!(
+                    "pushed to {}: now at {} ({} commits, {} objects)",
+                    path.display(),
+                    short_hash(&to),
+                    transferred.commits,
+                    transferred.objects
+                ),
+            }
         }
+        Remote::Http(remote) => http_push(repo, &remote)?,
+    }
+    Ok(())
+}
+
+fn http_push(repo: &Repository, remote: &net::HttpRemote) -> Result<()> {
+    let info = remote.info()?;
+    check_remote(repo, &info)?;
+    if !info.accepts_push {
+        bail!(
+            "{} is read-only; it was not started with --allow-push",
+            remote.url
+        );
+    }
+
+    let Some(ours) = repo.head()? else {
+        println!("nothing to push");
+        return Ok(());
+    };
+    if info.head.as_deref() == Some(ours.as_str()) {
+        println!("already up to date");
+        return Ok(());
+    }
+
+    // Check locally first so the failure is quick and the message is ours: the
+    // remote would refuse anyway, but only after the whole bundle went over.
+    if let Some(theirs) = &info.head {
+        if !repo.has_commit(theirs)? || !sync::is_ancestor(repo, theirs, &ours)? {
+            bail!("that remote has commits you do not: pull and merge before pushing");
+        }
+    }
+
+    let objects = sync::bundle_for(repo, &ours, &remote.commits()?.into_iter().collect())?;
+    let accepted = remote.push(&objects, &ours)?;
+
+    if accepted.outcome == "up-to-date" {
+        println!("already up to date");
+    } else {
+        println!(
+            "pushed to {}: now at {} ({} commits, {} objects)",
+            remote.url,
+            short_hash(&accepted.head),
+            accepted.commits,
+            accepted.received
+        );
     }
     Ok(())
 }

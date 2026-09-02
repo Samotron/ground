@@ -11,8 +11,10 @@
 //! the same borehole get a conflict, which is correct, because only one of them
 //! can be right and the tool cannot know which.
 
+use crate::commit::Manifest;
 use crate::error::{Error, Result, invalid};
 use crate::store::{Repository, State, short_hash};
+use crate::wire;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 /// How two histories relate.
@@ -176,40 +178,55 @@ pub fn pull(local: &mut Repository, remote: &Repository) -> Result<PullOutcome> 
     let Some(theirs) = remote.head()? else {
         return Ok(PullOutcome::UpToDate);
     };
-    let Some(ours) = local.head()? else {
-        let transferred = transfer(remote, local, &theirs)?;
-        local.set_head(&theirs)?;
-        let state = local.state_at(&theirs)?;
-        local.write_working(&state)?;
-        return Ok(PullOutcome::FastForward {
-            to: theirs,
-            transferred,
-        });
-    };
-
-    if ours == theirs {
+    if local.head()? == Some(theirs.clone()) {
         return Ok(PullOutcome::UpToDate);
     }
 
     let transferred = transfer(remote, local, &theirs)?;
+    integrate(local, &theirs, transferred)
+}
 
-    match relation(local, &ours, &theirs)? {
+/// Decide what a newly-arrived head means, once it and its ancestry are here.
+///
+/// Split out from [`pull`] because how the objects arrived — copied from a file
+/// next door, or unpacked from a bundle that came over HTTP — makes no
+/// difference to what happens next. Both transports get the same behaviour, and
+/// the same refusal to fast-forward over uncommitted work.
+pub fn integrate(
+    local: &mut Repository,
+    theirs: &str,
+    transferred: TransferReport,
+) -> Result<PullOutcome> {
+    let fast_forward = |local: &mut Repository| -> Result<PullOutcome> {
+        local.set_head(theirs)?;
+        let state = local.state_at(theirs)?;
+        local.write_working(&state)?;
+        Ok(PullOutcome::FastForward {
+            to: theirs.to_string(),
+            transferred: transferred.clone(),
+        })
+    };
+
+    let Some(ours) = local.head()? else {
+        return fast_forward(local);
+    };
+    if ours == theirs {
+        return Ok(PullOutcome::UpToDate);
+    }
+
+    match relation(local, &ours, theirs)? {
         Relation::Same | Relation::Ahead => Ok(PullOutcome::UpToDate),
         Relation::Behind => {
+            // Losing an engineer's unsaved re-interpretation to a background
+            // sync would be unforgivable.
             if !local.status()?.is_empty() {
                 return Err(Error::DirtyWorkingTree);
             }
-            local.set_head(&theirs)?;
-            let state = local.state_at(&theirs)?;
-            local.write_working(&state)?;
-            Ok(PullOutcome::FastForward {
-                to: theirs,
-                transferred,
-            })
+            fast_forward(local)
         }
         Relation::Diverged { base } => Ok(PullOutcome::Diverged {
             ours,
-            theirs,
+            theirs: theirs.to_string(),
             base,
             transferred,
         }),
@@ -469,4 +486,127 @@ fn merge_maps<T: PartialEq + Clone>(
         }
     }
     out
+}
+
+// -- bundles ----------------------------------------------------------------
+
+/// Every commit this file holds, for telling a remote what not to bother
+/// sending. A ground-model file has hundreds of commits at most, so sending the
+/// whole list costs less than negotiating over it.
+pub fn known_commits(repo: &Repository) -> Result<Vec<String>> {
+    let mut stmt = repo
+        .connection()
+        .prepare("SELECT hash FROM gm_commit ORDER BY hash")?;
+    let rows = stmt
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
+/// Collect the objects a peer needs to reach `head`, given what it already has.
+///
+/// A commit the peer holds is proof that it also holds every document that
+/// commit references, so those blobs are excluded exactly rather than
+/// re-sent — which is what keeps a routine pull down to the handful of objects
+/// that actually changed.
+pub fn bundle_for(
+    repo: &Repository,
+    head: &str,
+    peer_has: &BTreeSet<String>,
+) -> Result<Vec<wire::Object>> {
+    let mut already_there: BTreeSet<String> = BTreeSet::new();
+    for commit in peer_has {
+        if !repo.has_commit(commit)? {
+            continue; // their history, not ours; we cannot say what it holds
+        }
+        already_there.insert(commit.clone());
+        for entry in repo.manifest(commit)?.entries {
+            already_there.insert(entry.blob);
+        }
+    }
+
+    // Oldest first, so a partially-applied bundle still reads as a prefix of
+    // history rather than a set of orphans.
+    let mut chain = repo.ancestry(head)?;
+    chain.reverse();
+
+    let mut objects = Vec::new();
+    let mut packed: BTreeSet<String> = BTreeSet::new();
+    for info in chain {
+        if peer_has.contains(&info.hash) {
+            continue;
+        }
+        let manifest = repo.manifest(&info.hash)?;
+        for entry in &manifest.entries {
+            if already_there.contains(&entry.blob) || !packed.insert(entry.blob.clone()) {
+                continue;
+            }
+            objects.push((entry.blob.clone(), repo.get_blob_bytes(&entry.blob)?));
+        }
+        if packed.insert(info.hash.clone()) {
+            objects.push((info.hash.clone(), repo.get_blob_bytes(&info.hash)?));
+        }
+    }
+    Ok(objects)
+}
+
+/// Store the contents of a bundle.
+///
+/// Every object is verified against its own hash on the way in, so a corrupt or
+/// tampered transfer is rejected rather than absorbed. Nothing here moves a
+/// ref: receiving objects and deciding what they mean are separate steps, and
+/// the second one belongs to the caller.
+pub fn apply_bundle(repo: &Repository, objects: &[wire::Object]) -> Result<TransferReport> {
+    let mut report = TransferReport::default();
+
+    // Blobs first: a manifest is only meaningful once what it references is
+    // present, and this way an interrupted apply leaves no dangling index rows.
+    for (hash, bytes) in objects {
+        repo.put_blob_raw(hash, bytes)?;
+        report.objects += 1;
+    }
+
+    for (hash, bytes) in objects {
+        if let Some(manifest) = as_manifest(bytes) {
+            repo.record_commit(&manifest)?;
+            let _ = hash;
+            report.commits += 1;
+        }
+    }
+    Ok(report)
+}
+
+/// Recognise a commit manifest among the objects in a bundle. Model and
+/// material documents have no `type` field, so the discriminator is decisive.
+fn as_manifest(bytes: &[u8]) -> Option<Manifest> {
+    let manifest: Manifest = serde_json::from_slice(bytes).ok()?;
+    (manifest.type_ == Manifest::TYPE).then_some(manifest)
+}
+
+/// Check that a head received from a remote is fully present and usable.
+///
+/// A peer that sends a head without its ancestry — through a bug, a truncated
+/// transfer, or malice — would otherwise leave this file with a ref pointing
+/// into nothing.
+pub fn check_reachable(repo: &Repository, head: &str) -> Result<()> {
+    if !repo.has_commit(head)? {
+        return Err(invalid(format!(
+            "the remote's head {} did not arrive in the bundle",
+            short_hash(head)
+        )));
+    }
+    for info in repo.ancestry(head)? {
+        let manifest = repo.manifest(&info.hash)?;
+        for entry in &manifest.entries {
+            if !repo.has_blob(&entry.blob)? {
+                return Err(invalid(format!(
+                    "commit {} refers to {} '{}', which did not arrive",
+                    short_hash(&info.hash),
+                    entry.kind,
+                    entry.key
+                )));
+            }
+        }
+    }
+    Ok(())
 }

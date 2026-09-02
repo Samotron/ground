@@ -69,6 +69,7 @@ impl Gm {
             // Inherited GM_FILE would silently redirect every command away from
             // the sandbox, so make sure the tests control it.
             .env_remove("GM_FILE")
+            .env_remove("GM_TOKEN")
             .env("NO_COLOR", "1");
         cmd
     }
@@ -104,14 +105,31 @@ impl Gm {
 
     /// Start `gm ui` and wait until it answers. The child is killed on drop.
     pub fn serve(&self, file: &str) -> Server {
+        self.spawn_server(file, "ui", &[])
+    }
+
+    /// Start `gm serve` with extra flags, e.g. `["--allow-push"]`.
+    pub fn serve_sync(&self, file: &str, extra: &[&str]) -> Server {
+        self.spawn_server(file, "serve", extra)
+    }
+
+    fn spawn_server(&self, file: &str, subcommand: &str, extra: &[&str]) -> Server {
         let port = free_port();
+        let mut args = vec!["-f", file, subcommand, "--port"];
+        let port_text = port.to_string();
+        args.push(&port_text);
+        args.extend_from_slice(extra);
+
         let child = self
             .command()
-            .args(["-f", file, "ui", "--port", &port.to_string()])
+            // A token in the environment would silently authenticate every
+            // request and hide the tests that check it is required.
+            .env_remove("GM_TOKEN")
+            .args(&args)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .expect("spawn gm ui");
+            .unwrap_or_else(|e| panic!("spawn gm {subcommand}: {e}"));
         let server = Server { child, port };
         server.wait_until_ready();
         server
@@ -236,6 +254,11 @@ pub struct Server {
 }
 
 impl Server {
+    /// The base URL a client would be given.
+    pub fn url(&self) -> String {
+        format!("http://127.0.0.1:{}", self.port)
+    }
+
     fn wait_until_ready(&self) {
         for _ in 0..200 {
             if std::net::TcpStream::connect(("127.0.0.1", self.port)).is_ok() {

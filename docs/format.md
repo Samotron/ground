@@ -248,6 +248,61 @@ write nothing.
 A merge commit records both revisions as parents. History is therefore a DAG,
 and ordering it by `committed_at` would be wrong — see below.
 
+### Bundles
+
+Objects move between copies as a **bundle**: a bag of objects, with no ordering
+guarantees, no deltas and no compression.
+
+```
+gm-bundle/1\n
+sha256-<hex> <byte length>\n
+<that many bytes>
+sha256-<hex> <byte length>\n
+<that many bytes>
+...
+```
+
+Lengths are byte counts, so payloads need no escaping and a decoder never has to
+guess where an object ends. Every object carries its own hash, so a receiver
+verifies each one independently and a truncated or reordered transfer is caught
+rather than half-applied.
+
+The absence of delta encoding is deliberate. Deduplication has already done that
+work: a revision of a six-model route in which one layer boundary moved is two
+objects — the changed model document and the new manifest — regardless of how
+large the rest of the file is.
+
+### Over HTTP
+
+`gm serve` exposes four endpoints. There is no session state; each request
+stands alone.
+
+| | |
+|---|---|
+| `GET /sync/info` | JSON: protocol version, `fileId`, `schemaVersion`, `head`, `name`, `acceptsPush` |
+| `GET /sync/commits` | every commit hash this copy holds, one per line |
+| `POST /sync/bundle` | body: the caller's commit hashes, one per line. Returns a bundle of everything reachable from this copy's head that the caller lacks |
+| `POST /sync/push` | body: a bundle. Header `X-GM-Head`: the new head. Applies it if that is a fast-forward |
+
+A peer holding a commit is proof that it also holds every document that commit
+references, so `POST /sync/bundle` excludes those blobs exactly rather than
+re-sending them. That is what keeps a routine pull down to what actually
+changed.
+
+`POST /sync/push` refuses (409) anything that is not a fast-forward, and refuses
+to write over a remote whose own working tree is dirty. It never forces: only
+the pusher can see both sides of a divergence, so merging is their job.
+
+Serving a bundle discloses nothing the UI pages do not already show, so it needs
+no permission beyond being reachable. Accepting a push is a write to someone
+else's file, so it requires `--allow-push`.
+
+**Transport security is out of scope.** This is plain HTTP: `--token` sets a
+shared secret checked as `Authorization: Bearer <token>`, but nothing is
+encrypted, and `https://` is refused rather than silently downgraded. It is
+built for a network you already trust — a LAN, a VPN, or a tunnel you put in
+front of it.
+
 ## History ordering
 
 `gm log` orders commits **topologically**: descendants before ancestors, from

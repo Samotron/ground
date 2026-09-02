@@ -1,12 +1,17 @@
-//! The built-in web UI: `gm ui`.
+//! The built-in web server: `gm ui` and `gm serve`.
 //!
-//! Read-only, bound to the loopback interface, and served entirely from the
-//! binary. It reopens the file for every request rather than holding it, so a
-//! commit made in another terminal — or an edit made with `sqlite3` — shows up
-//! on the next refresh instead of going stale behind a cached handle.
+//! Read-only pages plus, under `/sync/`, the endpoints two copies of a file use
+//! to exchange history. Everything is served from the binary: no CDN, no build
+//! step, no network access. `gm ui` has to work on a site laptop with no
+//! internet.
+//!
+//! The file is reopened for every request rather than held, so a commit made in
+//! another terminal — or an edit made with `sqlite3` — shows up on the next
+//! refresh instead of going stale behind a cached handle.
 
 mod page;
 mod section;
+pub mod sync;
 
 use crate::render as text;
 use anyhow::{Context, Result, anyhow};
@@ -14,57 +19,103 @@ use gm_core::exchange::Exchange;
 use gm_core::model::{Bounded, ConstitutiveModel, Groundwater};
 use gm_core::store::{Repository, State, short_hash};
 use gm_core::validate;
+use gm_core::wire;
 use page::{escape, num, render};
 use std::fmt::Write;
 use std::path::Path;
 use tiny_http::{Header, Response, Server};
 
-pub fn serve(path: &Path, port: u16) -> Result<()> {
-    // Loopback only. A ground model is usually commercially confidential and
-    // often personally identifiable by site address; binding to 0.0.0.0 would
-    // publish it to the whole network, which is never what someone typing
-    // `gm ui` meant to do.
-    let address = format!("127.0.0.1:{port}");
-    let server =
-        Server::http(&address).map_err(|e| anyhow!("could not listen on {address}: {e}"))?;
+/// How a server was asked to run.
+#[derive(Debug, Clone)]
+pub struct Options {
+    /// Interface to listen on. Loopback unless someone says otherwise: a ground
+    /// model is usually commercially confidential and often identifies a site
+    /// by address, so binding wider has to be a deliberate act.
+    pub bind: String,
+    pub port: u16,
+    /// Whether `POST /sync/push` will write to this file.
+    pub allow_push: bool,
+    /// When set, every request must carry `Authorization: Bearer <token>`.
+    pub token: Option<String>,
+}
+
+impl Options {
+    /// A local viewer: loopback, no push.
+    pub fn local(port: u16) -> Self {
+        Options {
+            bind: "127.0.0.1".to_string(),
+            port,
+            allow_push: false,
+            token: None,
+        }
+    }
+
+    fn address(&self) -> String {
+        format!("{}:{}", self.bind, self.port)
+    }
+}
+
+pub fn serve(path: &Path, opts: Options) -> Result<()> {
+    let server = Server::http(opts.address())
+        .map_err(|e| anyhow!("could not listen on {}: {e}", opts.address()))?;
 
     let path = path.to_path_buf();
     let name = Repository::open(&path)?.working()?.file_metadata.name;
 
-    println!("gm ui: {name}");
-    println!("       http://{address}/");
-    println!("       read-only; press Ctrl-C to stop");
+    println!("gm: {name}");
+    println!("    http://{}/", opts.address());
+    if opts.allow_push {
+        println!("    accepting pushes");
+    } else {
+        println!("    read-only");
+    }
+    if opts.token.is_some() {
+        println!("    a token is required");
+    }
+    if opts.bind != "127.0.0.1" && opts.bind != "localhost" {
+        println!(
+            "    note: reachable from the network. This traffic is not encrypted \n\
+             \x20         and is meant for a network you already trust."
+        );
+    }
+    println!("    press Ctrl-C to stop");
 
-    for request in server.incoming_requests() {
+    for mut request in server.incoming_requests() {
         let url = request.url().to_string();
         let method = request.method().as_str().to_string();
 
-        let response = if method != "GET" {
-            // The UI never writes. Editing goes through the CLI, where it is
-            // validated and attributed to a named author.
-            Reply::text(405, "gm ui is read-only")
+        let authorised = opts.token.as_ref().is_none_or(|token| {
+            request.headers().iter().any(|h| {
+                h.field.equiv("Authorization") && h.value.as_str() == format!("Bearer {token}")
+            })
+        });
+        let head_header = request
+            .headers()
+            .iter()
+            .find(|h| h.field.equiv(sync::HEAD_HEADER))
+            .map(|h| h.value.as_str().to_string());
+
+        let mut body = Vec::new();
+        if method == "POST" {
+            let _ = request.as_reader().read_to_end(&mut body);
+        }
+
+        let response = if !authorised {
+            Reply::text(
+                401,
+                "a token is required: send Authorization: Bearer <token>",
+            )
         } else {
-            match route(&path, &url) {
+            match handle(&path, &opts, &method, &url, &body, head_header.as_deref()) {
                 Ok(reply) => reply,
-                Err(err) => Reply::html(
-                    500,
-                    &render(
-                        &name,
-                        "Error",
-                        "",
-                        &format!(
-                            "<h2>Something went wrong</h2><p class=\"note\">{}</p>",
-                            escape(&format!("{err:#}"))
-                        ),
-                    ),
-                ),
+                Err(err) => error_page(&name, &err),
             }
         };
 
         let header = Header::from_bytes(&b"Content-Type"[..], response.content_type.as_bytes())
             .expect("content types are valid header values");
         let _ = request.respond(
-            Response::from_string(response.body)
+            Response::from_data(response.body)
                 .with_status_code(response.status)
                 .with_header(header),
         );
@@ -72,10 +123,47 @@ pub fn serve(path: &Path, port: u16) -> Result<()> {
     Ok(())
 }
 
-struct Reply {
+fn handle(
+    path: &Path,
+    opts: &Options,
+    method: &str,
+    url: &str,
+    body: &[u8],
+    head_header: Option<&str>,
+) -> Result<Reply> {
+    // Strip any query string; nothing here uses one.
+    let route = url.split('?').next().unwrap_or("/");
+
+    if let Some(reply) = sync::handle(path, opts, method, route, body, head_header) {
+        return reply;
+    }
+    if method != "GET" {
+        // The pages never write. Editing goes through the CLI, where it is
+        // validated and attributed to a named author.
+        return Ok(Reply::text(405, "gm ui is read-only"));
+    }
+    pages(path, route)
+}
+
+fn error_page(name: &str, err: &anyhow::Error) -> Reply {
+    Reply::html(
+        500,
+        &render(
+            name,
+            "Error",
+            "",
+            &format!(
+                "<h2>Something went wrong</h2><p class=\"note\">{}</p>",
+                escape(&format!("{err:#}"))
+            ),
+        ),
+    )
+}
+
+pub struct Reply {
     status: u16,
     content_type: &'static str,
-    body: String,
+    body: Vec<u8>,
 }
 
 impl Reply {
@@ -83,32 +171,37 @@ impl Reply {
         Self {
             status,
             content_type: "text/html; charset=utf-8",
-            body: body.to_string(),
+            body: body.as_bytes().to_vec(),
         }
     }
     fn json(body: String) -> Self {
         Self {
             status: 200,
             content_type: "application/json; charset=utf-8",
-            body,
+            body: body.into_bytes(),
         }
     }
     fn text(status: u16, body: &str) -> Self {
         Self {
             status,
             content_type: "text/plain; charset=utf-8",
-            body: body.to_string(),
+            body: body.as_bytes().to_vec(),
+        }
+    }
+    fn bundle(objects: &[wire::Object]) -> Self {
+        Self {
+            status: 200,
+            content_type: "application/vnd.gm.bundle",
+            body: wire::encode_bundle(objects),
         }
     }
 }
 
-fn route(path: &Path, url: &str) -> Result<Reply> {
+fn pages(path: &Path, route: &str) -> Result<Reply> {
     let repo = Repository::open(path).context("reopening the ground-model file")?;
     let state = repo.working()?;
     let name = state.file_metadata.name.clone();
 
-    // Strip any query string; nothing here uses one.
-    let route = url.split('?').next().unwrap_or("/");
     let segments: Vec<String> = route
         .split('/')
         .filter(|s| !s.is_empty())

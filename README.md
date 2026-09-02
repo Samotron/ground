@@ -79,8 +79,9 @@ $ duckdb -c "INSTALL sqlite; LOAD sqlite;
 | `gm import <json>` / `gm export` | Flat JSON interchange |
 | `gm sql <query>` | Query the materialised tables |
 | `gm ui` | Local read-only web UI. `--port` |
-| `gm clone <src> [dest]` | Copy a file, history and all |
-| `gm pull` / `gm push [remote]` | Sync with another copy |
+| `gm serve` | Serve for others to pull from. `--bind --allow-push --token` |
+| `gm clone <src\|url> [dest]` | Copy a file, history and all |
+| `gm pull` / `gm push [remote]` | Sync with another copy, by path or URL |
 | `gm merge <rev>` | Three-way merge of a diverged revision |
 | `gm remote add/list/remove` | Named copies to sync with |
 
@@ -117,6 +118,42 @@ committed 3150a2bc34ec
 Different models merge automatically. Two people who both re-logged the *same*
 borehole get a conflict and nothing is written — only one of them can be right,
 and the tool cannot know which.
+
+### Over the network
+
+A remote can be a path or a URL. Someone runs a server:
+
+```console
+$ gm serve --allow-push
+gm: A13 corridor ground models
+    http://127.0.0.1:8766/
+    accepting pushes
+```
+
+and everyone else works against it:
+
+```console
+$ gm clone http://office.local:8766 field.gm
+cloned http://office.local:8766 into field.gm (2 commits, 13 objects)
+
+$ gm -f field.gm commit -m "CH-150: channel top raised after BH112"
+$ gm -f field.gm push
+pushed to http://office.local:8766: now at 72e8e61c7e81 (1 commits, 2 objects)
+```
+
+Note the size of that push: **2 objects, not 13.** The changed model document
+and the new manifest. The other five models and all four materials do not move,
+because the server already has them and says so.
+
+`gm serve` binds to loopback unless told otherwise, and refuses pushes unless
+started with `--allow-push` — serving a bundle discloses nothing the UI pages
+already don't, but accepting a push writes to someone else's file. `--token`
+sets a shared secret.
+
+**This is plain HTTP.** Nothing is encrypted; `https://` is refused rather than
+quietly downgraded. It is built for a network you already trust — a LAN, a VPN,
+or a tunnel you put in front of it. Adding TLS would mean a dependency tree that
+costs more than the single-binary property is worth.
 
 ## The web UI
 
@@ -203,6 +240,7 @@ Three layers, because they catch different things:
 | `crates/gm-core/tests/` | the library directly | format, object store, sync, merge, validation |
 | `crates/gm-cli/tests/cli.rs` | the real binary | what you type and what comes back: stdout, stderr, exit status |
 | `crates/gm-cli/tests/ui.rs` | `gm ui` over HTTP | routes, status codes, escaping, refusing to write |
+| `crates/gm-cli/tests/sync_http.rs` | two copies over the wire | clone, pull, push, tokens, divergence, refusals |
 
 The CLI tests exist because the library tests would all still pass with a
 completely broken command line. A correct library behind a command that prints
@@ -262,14 +300,13 @@ expensive to change.
 
 All of it works: the format, the object store, history, diff, checkout,
 validation, integrity checking, JSON interchange, clone/push/pull with
-three-way merge, the web UI, and the CLI. 110 tests.
+three-way merge over both files and HTTP, the web UI, and the CLI. 143 tests.
 
 Known limits, in rough order of how much they'd matter:
 
-- **Sync is filesystem-only.** A remote is a path, so it works over a shared
-  drive or a synced folder but not over the network. The transfer logic is
-  already transport-agnostic — it asks for objects by hash — so an HTTP
-  transport served by `gm ui` is the obvious next step.
+- **No transport security.** Sync is plain HTTP with an optional shared token.
+  Fine on a LAN or VPN, not on the open internet. TLS would mean a large
+  dependency tree; a tunnel in front is the cheaper answer.
 - **Merge conflicts must be resolved by hand**, by checking out one side and
   re-committing. There is no assisted resolution.
 - **No branches.** `gm_ref` supports them and the merge machinery is

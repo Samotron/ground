@@ -139,6 +139,11 @@ ui:
 editor:
     cd editor && npm install && npm run dev
 
+# Serve the sandbox for other machines to clone and push to.
+[group('demo')]
+serve *args: _build _seeded
+    @{{ bin }} -f {{ sandbox }}/a13.gm serve "$@"
+
 # A shell in the sandbox, with gm on PATH and $GM_FILE set.
 [group('demo')]
 sandbox:
