@@ -11,7 +11,10 @@ pub enum Error {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("not a ground-model file: {0}")]
+    // The path is carried for programmatic use but left out of the message:
+    // every caller already names the file it was asked to open, and printing it
+    // twice reads as a stutter.
+    #[error("not a ground-model file")]
     NotARepository(String),
 
     #[error("ground-model file was written by schema {found}, this build understands {supported}")]

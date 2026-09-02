@@ -6,8 +6,12 @@ which scenario in the walkthrough covers it.
 The script asserts its own expectations as it goes — including that the things
 which *should* be refused still are — and prints a red line plus a non-zero exit
 if anything behaves differently. A green "All 10 scenarios behaved as expected"
-means the mechanics work. This checklist is for the judgements a script cannot
-make: whether the output is *right*, and whether it is usable.
+means the mechanics work.
+
+`just test-cli` goes further: it drives the binary and the web UI and checks the
+actual output — messages, exit codes, the arithmetic in a section, HTML
+escaping. Run it first; if it is green, everything below is about judgement
+rather than mechanics: whether the output is *right*, and whether it is usable.
 
 ```console
 just uat            # the full walkthrough        (or: uat/run.sh)

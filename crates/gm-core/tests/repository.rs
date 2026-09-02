@@ -344,3 +344,38 @@ fn a_text_typed_object_is_diagnosed_as_corrupt_not_as_a_type_error() {
         problems[0]
     );
 }
+
+#[test]
+fn a_file_that_is_not_sqlite_at_all_is_rejected_as_not_a_repository() {
+    // The neighbouring test uses a valid SQLite file with the wrong application
+    // id. A file that is not a database at all takes a different path through
+    // SQLite, and used to surface as a raw "file is not a database" error code.
+    let dir = TempDir::new().expect("temp dir");
+    let path = dir.path().join("notes.gm");
+    std::fs::write(&path, "these are my site notes, not a database").expect("write");
+
+    let err = match Repository::open(&path) {
+        Err(err) => err,
+        Ok(_) => panic!("should reject a file that is not a database"),
+    };
+    assert!(
+        matches!(err, gm_core::Error::NotARepository(_)),
+        "expected NotARepository, got {err:?}"
+    );
+}
+
+#[test]
+fn a_wrongly_typed_interchange_document_is_told_what_was_expected() {
+    // The discriminator has to be checked before deserialisation, or the reader
+    // is told about whichever field happened to be missing instead of being
+    // told it handed over the wrong kind of document entirely.
+    let err = Exchange::from_json(r#"{"type":"agsi/1.0","project":{}}"#)
+        .expect_err("should refuse another format");
+    assert!(
+        err.to_string().contains("gm.file/1") && err.to_string().contains("agsi/1.0"),
+        "message should name both formats, got: {err}"
+    );
+
+    let err = Exchange::from_json(r#"{"models":[]}"#).expect_err("should refuse an untyped doc");
+    assert!(err.to_string().contains("no 'type' field"), "got: {err}");
+}

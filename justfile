@@ -54,6 +54,11 @@ docs:
 test *args:
     cargo test "$@"
 
+# Just the tests that drive the binary: the command line and the web UI.
+[group('check')]
+test-cli:
+    cargo test --test cli --test ui
+
 # Formatting and lints, exactly as a CI gate would apply them.
 [group('check')]
 lint:

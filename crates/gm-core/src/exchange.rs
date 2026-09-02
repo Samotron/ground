@@ -71,15 +71,28 @@ impl Exchange {
     }
 
     pub fn from_json(text: &str) -> Result<Self> {
-        let doc: Exchange = serde_json::from_str(text)?;
-        if doc.type_ != Self::TYPE {
-            return Err(crate::error::invalid(format!(
-                "expected a '{}' document, found '{}'",
-                Self::TYPE,
-                doc.type_
-            )));
+        // Check the discriminator before deserialising the whole thing. The
+        // discriminator exists precisely so that the wrong kind of document
+        // gets told what it should have been; deserialising first would report
+        // whichever field happened to be missing, which says nothing useful.
+        let probe: serde_json::Value = serde_json::from_str(text)?;
+        match probe.get("type").and_then(serde_json::Value::as_str) {
+            Some(Self::TYPE) => {}
+            Some(other) => {
+                return Err(crate::error::invalid(format!(
+                    "expected a '{}' document, found '{other}'",
+                    Self::TYPE
+                )));
+            }
+            None => {
+                return Err(crate::error::invalid(format!(
+                    "not a ground-model interchange document: no 'type' field, \
+                     expected '{}'",
+                    Self::TYPE
+                )));
+            }
         }
-        Ok(doc)
+        Ok(serde_json::from_value(probe)?)
     }
 }
 

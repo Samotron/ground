@@ -166,6 +166,24 @@ $ cargo build --release   # target/release/gm, one static binary
 $ cargo test
 ```
 
+### Tests
+
+Three layers, because they catch different things:
+
+| | What it drives | |
+|---|---|---|
+| `crates/gm-core/tests/` | the library directly | format, object store, sync, merge, validation |
+| `crates/gm-cli/tests/cli.rs` | the real binary | what you type and what comes back: stdout, stderr, exit status |
+| `crates/gm-cli/tests/ui.rs` | `gm ui` over HTTP | routes, status codes, escaping, refusing to write |
+
+The CLI tests exist because the library tests would all still pass with a
+completely broken command line. A correct library behind a command that prints
+the wrong number is still wrong, and messages, exit codes and table arithmetic
+are the whole product as far as anyone using `gm` is concerned.
+
+`uat/run.sh` is a fourth thing and serves a different purpose: it is for a
+person to watch and judge, not for CI to check.
+
 With [just](https://just.systems), `just` on its own lists everything:
 
 | | |
@@ -215,7 +233,7 @@ expensive to change.
 
 All of it works: the format, the object store, history, diff, checkout,
 validation, integrity checking, JSON interchange, clone/push/pull with
-three-way merge, the web UI, and the CLI. 49 tests.
+three-way merge, the web UI, and the CLI. 110 tests.
 
 Known limits, in rough order of how much they'd matter:
 

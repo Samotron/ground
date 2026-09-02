@@ -151,9 +151,22 @@ impl Repository {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "foreign_keys", true)?;
 
-        let app_id: i32 = conn.pragma_query_value(None, "application_id", |r| r.get(0))?;
+        let not_a_repo = || Error::NotARepository(path.display().to_string());
+
+        // A file that is not SQLite at all fails here rather than returning a
+        // wrong id, and the raw "file is not a database, error code 26" helps
+        // nobody who just pointed gm at the wrong file.
+        let app_id: i32 = conn
+            .pragma_query_value(None, "application_id", |r| r.get(0))
+            .map_err(|e| {
+                if is_not_a_database(&e) {
+                    not_a_repo()
+                } else {
+                    e.into()
+                }
+            })?;
         if app_id != schema::APPLICATION_ID {
-            return Err(Error::NotARepository(path.display().to_string()));
+            return Err(not_a_repo());
         }
         let user_version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
         if user_version > schema::USER_VERSION {
@@ -163,10 +176,13 @@ impl Repository {
             });
         }
 
-        let file_id: String =
-            conn.query_row("SELECT file_id FROM gm_config WHERE id = 1", [], |r| {
+        // Right application id but no config row: something stamped our magic
+        // number onto a database that is not one of ours.
+        let file_id: String = conn
+            .query_row("SELECT file_id FROM gm_config WHERE id = 1", [], |r| {
                 r.get(0)
-            })?;
+            })
+            .map_err(|_| not_a_repo())?;
         Ok(Repository { conn, file_id })
     }
 
@@ -1154,4 +1170,13 @@ fn stored_bytes(value: rusqlite::types::ValueRef<'_>) -> rusqlite::Result<Vec<u8
             other.data_type(),
         )),
     }
+}
+
+/// True when SQLite reports that the file is not a database at all, as opposed
+/// to any other failure reading it.
+fn is_not_a_database(err: &rusqlite::Error) -> bool {
+    matches!(
+        err,
+        rusqlite::Error::SqliteFailure(e, _) if e.code == rusqlite::ErrorCode::NotADatabase
+    )
 }
