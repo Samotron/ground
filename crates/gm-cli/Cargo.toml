@@ -1,0 +1,21 @@
+[package]
+name = "gm-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "gm: a self-contained tool for 1D ground model transfer, storage and creation."
+
+[[bin]]
+name = "gm"
+path = "src/main.rs"
+
+[dependencies]
+gm-core = { path = "../gm-core" }
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+rusqlite.workspace = true

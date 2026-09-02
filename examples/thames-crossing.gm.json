@@ -1,0 +1,94 @@
+{
+  "type": "gm.file/1",
+  "schemaVersion": "0.1.0",
+  "file": {
+    "name": "Example multi-profile ground model",
+    "description": "Two chainages along a route, London Clay over Made Ground.",
+    "crs": "EPSG:27700",
+    "verticalDatum": "Ordnance Datum Newlyn"
+  },
+  "materials": [
+    {
+      "materialKey": "MADE_GROUND",
+      "name": "Made Ground",
+      "soilClass": "anthropogenic",
+      "properties": {
+        "unitWeight": { "value": 19.0, "lower": 17.0, "upper": 21.0, "unit": "kN/m3" },
+        "permeability": { "value": 1e-6, "lower": 1e-7, "upper": 1e-5, "unit": "m/s" }
+      },
+      "constitutiveModels": [
+        {
+          "id": "mc-01",
+          "kind": "mohr-coulomb",
+          "drainage": "drained",
+          "parameters": {
+            "frictionAngleDeg": { "value": 30, "lower": 27, "upper": 33, "unit": "deg" },
+            "cohesion": { "value": 2, "lower": 0, "upper": 5, "unit": "kPa" },
+            "youngModulus": { "value": 12000, "lower": 8000, "upper": 18000, "unit": "kPa" }
+          }
+        }
+      ],
+      "provenance": { "kind": "assessed", "method": "engineering interpretation" }
+    },
+    {
+      "materialKey": "LONDON_CLAY",
+      "name": "London Clay",
+      "soilClass": "clay",
+      "properties": {
+        "unitWeight": { "value": 20.0, "lower": 19.0, "upper": 21.0, "unit": "kN/m3" },
+        "saturatedUnitWeight": { "value": 20.5, "lower": 19.5, "upper": 21.5, "unit": "kN/m3" }
+      },
+      "constitutiveModels": [
+        {
+          "id": "ut-01",
+          "kind": "undrained-tresca",
+          "drainage": "undrained",
+          "parameters": {
+            "undrainedShearStrength": {
+              "value": 75, "lower": 60, "upper": 90, "unit": "kPa",
+              "profile": {
+                "interpolation": "linear",
+                "datum": "layer-top",
+                "points": [
+                  { "depth": 0, "value": 60, "lower": 50, "upper": 70 },
+                  { "depth": 15, "value": 120, "lower": 95, "upper": 145 }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "provenance": { "kind": "assessed", "method": "design line", "references": ["interpretation-001"] }
+    }
+  ],
+  "models": [
+    {
+      "modelKey": "CH-100",
+      "name": "Chainage 100",
+      "surfaceLevel": 82.5,
+      "baseLevel": 62.5,
+      "x": 384100.0,
+      "y": 397200.0,
+      "groundwater": { "kind": "hydrostatic", "depth": 2.5 },
+      "settings": { "allowGaps": false, "profileSublayerThickness": 0.5 },
+      "layers": [
+        { "topLevel": 82.5, "materialKey": "MADE_GROUND", "description": "Made Ground" },
+        { "topLevel": 79.5, "materialKey": "LONDON_CLAY", "description": "London Clay" }
+      ]
+    },
+    {
+      "modelKey": "CH-125",
+      "name": "Chainage 125",
+      "surfaceLevel": 81.9,
+      "baseLevel": 61.9,
+      "x": 384125.0,
+      "y": 397202.0,
+      "groundwater": { "kind": "hydrostatic", "depth": 2.2 },
+      "settings": { "allowGaps": false, "profileSublayerThickness": 0.5 },
+      "layers": [
+        { "topLevel": 81.9, "materialKey": "MADE_GROUND", "description": "Made Ground" },
+        { "topLevel": 79.9, "materialKey": "LONDON_CLAY", "description": "London Clay" }
+      ]
+    }
+  ]
+}

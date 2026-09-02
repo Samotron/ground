@@ -1,0 +1,5 @@
+/target
+*.gm
+*.gm-journal
+*.gm-wal
+*.gm-shm
