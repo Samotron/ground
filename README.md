@@ -182,8 +182,16 @@ something to publish to the office network because someone typed `gm ui`.
 
 `editor/` is the static counterpart to `gm ui`, designed for GitHub Pages. It
 keeps the section drawing and validation-led experience, then adds forms for
-file metadata, models, layers, material properties and advanced JSON fields.
-Nothing is uploaded: SQLite and JSON are opened in browser memory.
+file metadata, models, layers, materials and advanced JSON fields. Nothing is
+uploaded: SQLite and JSON are opened in browser memory.
+
+Soil classes, property names, units, constitutive kinds and drainage are picked
+from dropdowns rather than typed. The format keeps all five open on purpose, so
+every list ends in **Other…**, which turns that one control back into a text
+box, and a value the list has never heard of is kept and marked `(custom)`
+rather than dropped. The lists come from `assets/vocabulary.json`; choosing a
+property brings its usual unit with it, because `kN/m2` where you meant `kN/m3`
+is a silent error no validator can catch.
 
 It accepts both kinds of ground-model document:
 
@@ -210,6 +218,7 @@ implementations drift. Three things are shared rather than duplicated:
 |---|---|
 | `assets/gm.css` | colour and type tokens, and the section drawing. Included by `page.rs`, imported by `main.js` |
 | `assets/conformance.json` | the agreed material colours, and the exact issue set a known-bad document must produce |
+| `assets/vocabulary.json` | the suggested property names, units, soil classes and constitutive kinds. Offered by the editor's dropdowns, read by `gm_core::vocabulary` as the kinds it checks parameters for |
 | the rules themselves | `gm_core::validate` and `editor/src/validation.js`, pinned against that fixture |
 
 `just conformance` runs both suites against the fixture. It exists because the
@@ -322,7 +331,7 @@ expensive to change.
 All of it works: the format, the object store, history, diff, checkout,
 validation, integrity checking, JSON interchange, clone/push/pull with
 three-way merge over both files and HTTP, the web UI, and the CLI.
-146 Rust tests and 8 in the browser editor, three of which pin the two
+149 Rust tests and 13 in the browser editor, three of which pin the two
 implementations against each other.
 
 Known limits, in rough order of how much they'd matter:

@@ -1,0 +1,115 @@
+{
+  "note": "Advisory vocabulary, not a schema. The format keeps property names, unit strings and constitutive kinds open on purpose; this file is what the editor offers first so that the common cases are picked from a list rather than typed. Anything outside it is still valid and is carried through untouched. gm_core reads constitutiveKinds[].kind as the set of kinds it checks parameters for.",
+  "soilClasses": [
+    "clay",
+    "silt",
+    "sand",
+    "gravel",
+    "granular",
+    "organic",
+    "peat",
+    "chalk",
+    "rock",
+    "anthropogenic",
+    "fill"
+  ],
+  "properties": [
+    { "key": "unitWeight", "label": "Bulk unit weight", "units": ["kN/m3"] },
+    { "key": "saturatedUnitWeight", "label": "Saturated unit weight", "units": ["kN/m3"] },
+    { "key": "dryUnitWeight", "label": "Dry unit weight", "units": ["kN/m3"] },
+    { "key": "permeability", "label": "Permeability", "units": ["m/s", "m/day"] },
+    { "key": "porosity", "label": "Porosity", "units": ["-"] },
+    { "key": "voidRatio", "label": "Void ratio", "units": ["-"] },
+    { "key": "moistureContent", "label": "Moisture content", "units": ["%"] },
+    { "key": "liquidLimit", "label": "Liquid limit", "units": ["%"] },
+    { "key": "plasticLimit", "label": "Plastic limit", "units": ["%"] },
+    { "key": "plasticityIndex", "label": "Plasticity index", "units": ["%"] },
+    { "key": "finesContent", "label": "Fines content", "units": ["%"] },
+    { "key": "sptN", "label": "SPT N", "units": ["blows/300mm"] },
+    { "key": "overconsolidationRatio", "label": "Overconsolidation ratio", "units": ["-"] },
+    { "key": "earthPressureCoefficientAtRest", "label": "K0", "units": ["-"] }
+  ],
+  "constitutiveKinds": [
+    {
+      "kind": "mohr-coulomb",
+      "label": "Mohr-Coulomb",
+      "drainage": "drained",
+      "parameters": [
+        { "key": "frictionAngleDeg", "label": "Friction angle", "units": ["deg"] },
+        { "key": "cohesion", "label": "Cohesion", "units": ["kPa", "MPa"] },
+        { "key": "dilationAngleDeg", "label": "Dilation angle", "units": ["deg"] },
+        { "key": "youngModulus", "label": "Young's modulus", "units": ["kPa", "MPa"] },
+        { "key": "poissonRatio", "label": "Poisson's ratio", "units": ["-"] }
+      ]
+    },
+    {
+      "kind": "undrained-tresca",
+      "label": "Undrained Tresca",
+      "drainage": "undrained",
+      "parameters": [
+        { "key": "undrainedShearStrength", "label": "Undrained shear strength", "units": ["kPa", "MPa"] },
+        { "key": "youngModulusUndrained", "label": "Undrained Young's modulus", "units": ["kPa", "MPa"] },
+        { "key": "poissonRatio", "label": "Poisson's ratio", "units": ["-"] }
+      ]
+    },
+    {
+      "kind": "linear-elastic",
+      "label": "Linear elastic",
+      "parameters": [
+        { "key": "youngModulus", "label": "Young's modulus", "units": ["kPa", "MPa"] },
+        { "key": "poissonRatio", "label": "Poisson's ratio", "units": ["-"] },
+        { "key": "shearModulus", "label": "Shear modulus", "units": ["kPa", "MPa"] },
+        { "key": "bulkModulus", "label": "Bulk modulus", "units": ["kPa", "MPa"] }
+      ]
+    },
+    {
+      "kind": "hardening-soil",
+      "label": "Hardening soil",
+      "drainage": "drained",
+      "parameters": [
+        { "key": "e50Ref", "label": "Secant stiffness E50ref", "units": ["kPa", "MPa"] },
+        { "key": "eOedRef", "label": "Oedometer stiffness Eoedref", "units": ["kPa", "MPa"] },
+        { "key": "eUrRef", "label": "Unload/reload stiffness Eurref", "units": ["kPa", "MPa"] },
+        { "key": "referencePressure", "label": "Reference pressure", "units": ["kPa", "MPa"] },
+        { "key": "stiffnessExponent", "label": "Stiffness exponent m", "units": ["-"] },
+        { "key": "frictionAngleDeg", "label": "Friction angle", "units": ["deg"] },
+        { "key": "cohesion", "label": "Cohesion", "units": ["kPa", "MPa"] },
+        { "key": "dilationAngleDeg", "label": "Dilation angle", "units": ["deg"] }
+      ]
+    },
+    {
+      "kind": "cam-clay",
+      "label": "Cam-clay",
+      "parameters": [
+        { "key": "lambda", "label": "Compression index lambda", "units": ["-"] },
+        { "key": "kappa", "label": "Swelling index kappa", "units": ["-"] },
+        { "key": "criticalStateM", "label": "Critical state ratio M", "units": ["-"] },
+        { "key": "referenceVoidRatio", "label": "Reference void ratio", "units": ["-"] },
+        { "key": "poissonRatio", "label": "Poisson's ratio", "units": ["-"] }
+      ]
+    },
+    {
+      "kind": "modified-cam-clay",
+      "label": "Modified cam-clay",
+      "parameters": [
+        { "key": "lambda", "label": "Compression index lambda", "units": ["-"] },
+        { "key": "kappa", "label": "Swelling index kappa", "units": ["-"] },
+        { "key": "criticalStateM", "label": "Critical state ratio M", "units": ["-"] },
+        { "key": "referenceVoidRatio", "label": "Reference void ratio", "units": ["-"] },
+        { "key": "poissonRatio", "label": "Poisson's ratio", "units": ["-"] }
+      ]
+    },
+    {
+      "kind": "hoek-brown",
+      "label": "Hoek-Brown",
+      "parameters": [
+        { "key": "uniaxialCompressiveStrength", "label": "UCS of intact rock", "units": ["MPa", "kPa"] },
+        { "key": "materialConstantMi", "label": "Material constant mi", "units": ["-"] },
+        { "key": "geologicalStrengthIndex", "label": "GSI", "units": ["-"] },
+        { "key": "disturbanceFactor", "label": "Disturbance factor D", "units": ["-"] },
+        { "key": "youngModulus", "label": "Young's modulus", "units": ["kPa", "MPa"] },
+        { "key": "poissonRatio", "label": "Poisson's ratio", "units": ["-"] }
+      ]
+    }
+  ]
+}

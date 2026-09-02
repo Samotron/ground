@@ -10,6 +10,17 @@ import {
 } from "./document.js";
 import { issueCounts, validateDocument } from "./validation.js";
 import { sampleDocument } from "./sample.js";
+import {
+  constitutiveKind,
+  constitutiveKinds,
+  defaultUnit,
+  kindParameters,
+  label as termLabel,
+  nextTerm,
+  soilClasses,
+  terms,
+  unitsFor,
+} from "./vocabulary.js";
 
 const app = document.querySelector("#app");
 const fileInput = document.querySelector("#file-input");
@@ -23,6 +34,10 @@ const state = {
   selectedMaterial: 0,
   dirty: false,
   notice: null,
+  // Controls the engineer has taken off their dropdown, by field id, and the
+  // one to put the cursor in after the next render.
+  freeText: new Set(),
+  focusNext: null,
 };
 
 function element(tag, attributes = {}, children = []) {
@@ -66,6 +81,7 @@ function loadDocument(result) {
   state.selectedModel = 0;
   state.selectedMaterial = 0;
   state.dirty = false;
+  state.freeText.clear();
   state.notice = result.source.kind === "gm"
     ? { kind: "info", message: "Loaded locally. Downloading writes an uncommitted working tree; use gm diff and gm commit afterwards." }
     : null;
@@ -244,6 +260,67 @@ function field(label, value, onChange, options = {}) {
 function setOptional(object, key, value) {
   if (value === "" || value === undefined) delete object[key];
   else object[key] = value;
+}
+
+// A value no vocabulary can collide with, so "Other…" is never a real choice.
+const OTHER = "\u0000other";
+
+// A dropdown over a suggested vocabulary that can still say something the
+// vocabulary has never heard of.
+//
+// Property names, unit strings, soil classes and constitutive kinds are open
+// sets in the format and pinning them would be the wrong fight to pick — but
+// almost every material only ever needs the common terms, and typing `kN/m2`
+// where you meant `kN/m3` is a silent error no validator can catch. So the list
+// is offered first and every list ends in "Other…", which swaps that one
+// control for a text box. A value already in the document that is not in the
+// list is kept and marked, never quietly dropped.
+function choice(id, value, options, onChange, { placeholder = "Choose…" } = {}) {
+  const current = value ?? "";
+  if (state.freeText.has(id)) {
+    const input = element("input", {
+      value: current,
+      placeholder,
+      ...(state.focusNext === id ? { "data-focus": "on" } : {}),
+      onchange: (event) => { onChange(event.target.value); changed(); render(); },
+    });
+    return element("div", { class: "combo" }, [
+      input,
+      button("↩", () => { state.freeText.delete(id); render(); }, "icon", { title: "Back to the list" }),
+    ]);
+  }
+  const list = options.map((option) => (typeof option === "string" ? { value: option, text: option } : option));
+  const listed = list.some((option) => option.value === current);
+  return element("select", {
+    onchange: (event) => {
+      if (event.target.value === OTHER) {
+        state.freeText.add(id);
+        state.focusNext = id;
+        render();
+        return;
+      }
+      onChange(event.target.value);
+      changed();
+      render();
+    },
+  }, [
+    ...(current === "" && !listed ? [element("option", { value: "", text: placeholder, selected: "selected" })] : []),
+    ...(current !== "" && !listed ? [element("option", { value: current, text: `${current} (custom)`, selected: "selected" })] : []),
+    ...list.map((option) => element("option", {
+      value: option.value,
+      text: option.text,
+      ...(option.disabled ? { disabled: "disabled" } : {}),
+      ...(option.value === current ? { selected: "selected" } : {}),
+    })),
+    element("option", { value: OTHER, text: "Other…" }),
+  ]);
+}
+
+function choiceField(labelText, className, id, value, options, onChange, opts) {
+  return element("label", { class: className }, [
+    element("span", { text: labelText }),
+    choice(id, value, options, onChange, opts),
+  ]);
 }
 
 function renderProject() {
@@ -435,56 +512,165 @@ function renderMaterialEditor(material) {
       }),
       field("Name", material.name, (value) => setOptional(material, "name", value)),
       field("Description", material.description, (value) => setOptional(material, "description", value), { multiline: true, wide: true }),
-      field("Soil class", material.soilClass, (value) => setOptional(material, "soilClass", value)),
+      choiceField("Soil class", "field", `${material.materialKey}:soilClass`, material.soilClass,
+        [{ value: "", text: "Not stated" }, ...soilClasses],
+        (value) => setOptional(material, "soilClass", value)),
     ]),
     renderProperties(material),
+    renderConstitutive(material),
     renderAdvancedJson(material),
   ]);
 }
 
-function renderProperties(material) {
-  const entries = Object.entries(material.properties ?? {});
-  return element("div", { class: "panel properties-panel" }, [
-    element("div", { class: "panel-title" }, [element("h2", { text: "Properties" }), button("+ Add property", () => {
-      material.properties ??= {};
-      let key = "property";
-      let suffix = 1;
-      while (key in material.properties) key = `property${++suffix}`;
-      material.properties[key] = { unit: "" };
-      changed(); render();
-    }, "text compact")]),
-    ...(entries.length ? [element("div", { class: "property-table" }, entries.map(([key, bounded]) => {
-      const row = element("div", { class: "property-row" });
-      const values = [key, bounded.value, bounded.lower, bounded.upper, bounded.unit];
-      const labels = ["Property", "Value", "Lower", "Upper", "Unit"];
-      values.forEach((value, index) => row.append(element("label", { class: `mini-field property-${index}` }, [
-        element("span", { text: labels[index] }),
-        element("input", { value: value ?? "", type: index > 0 && index < 4 ? "number" : "text", step: "any", onchange: (event) => {
-          if (index === 0) {
-            const nextKey = event.target.value;
-            delete material.properties[key];
-            material.properties[nextKey] = bounded;
-          } else {
-            const prop = [null, "value", "lower", "upper", "unit"][index];
-            const next = event.target.value;
-            if (next === "") delete bounded[prop];
-            else bounded[prop] = index < 4 ? Number(next) : next;
-          }
-          changed(); render();
-        }}),
-      ])));
-      row.append(button("×", () => { delete material.properties[key]; changed(); render(); }, "icon danger", { title: "Remove property" }));
-      return row;
-    }))] : [element("p", { class: "empty", text: "No material properties yet." })]),
+// One row of the [term | value | lower | upper | unit] table, shared by a
+// material's properties and a constitutive model's parameters. `kind` picks the
+// vocabulary the two dropdowns offer: undefined for properties, the
+// constitutive kind for parameters.
+function boundedRow(bag, key, kind, idPrefix) {
+  const bounded = bag[key];
+  const id = `${idPrefix}:${key}`;
+  const what = kind === undefined ? "Property" : "Parameter";
+  const suggestions = terms(kind).map((suggestion) => ({
+    value: suggestion.key,
+    text: `${suggestion.key} — ${suggestion.label}`,
+    // Renaming onto a key the map already holds would merge two quantities into
+    // one and lose the other silently.
+    disabled: suggestion.key !== key && suggestion.key in bag,
+  }));
+
+  const rename = (next) => {
+    if (!next || next === key || next in bag) return;
+    delete bag[key];
+    bag[next] = bounded;
+    // A term carries its unit with it: switching to permeability must not leave
+    // kN/m3 sitting on it.
+    const unit = defaultUnit(next, kind);
+    if (unit && !unitsFor(next, kind).includes(bounded.unit)) bounded.unit = unit;
+  };
+
+  const numberCell = (labelText, name, className) => element("label", { class: `mini-field ${className}` }, [
+    element("span", { text: labelText }),
+    element("input", {
+      type: "number", step: "any", value: bounded[name] ?? "",
+      onchange: (event) => {
+        const next = event.target.value;
+        if (next === "") delete bounded[name];
+        else bounded[name] = Number(next);
+        changed(); render();
+      },
+    }),
   ]);
+
+  return element("div", { class: "property-row", title: termLabel(key, kind) }, [
+    choiceField(bounded.profile ? `${what} · profile` : what, "mini-field property-0", id, key, suggestions, rename),
+    numberCell("Value", "value", "property-1"),
+    numberCell("Lower", "lower", "property-2"),
+    numberCell("Upper", "upper", "property-3"),
+    choiceField("Unit", "mini-field property-4", `${id}:unit`, bounded.unit, unitsFor(key, kind),
+      (value) => setOptional(bounded, "unit", value), { placeholder: "Unit" }),
+    button("×", () => { delete bag[key]; changed(); render(); }, "icon danger", { title: `Remove ${what.toLowerCase()}` }),
+  ]);
+}
+
+// "+ Add" fills in the next term this material is missing, unit and all, so the
+// ordinary case is a click rather than a spelling.
+function addTerm(bag, kind, fallback) {
+  const suggestion = nextTerm(Object.keys(bag), kind);
+  let key = suggestion?.key;
+  if (!key) {
+    key = fallback;
+    let suffix = 1;
+    while (key in bag) key = `${fallback}${++suffix}`;
+  }
+  bag[key] = suggestion ? { unit: suggestion.units[0] } : {};
+  changed(); render();
+}
+
+function renderProperties(material) {
+  material.properties ??= {};
+  const keys = Object.keys(material.properties);
+  return element("div", { class: "panel properties-panel" }, [
+    element("div", { class: "panel-title" }, [
+      element("h2", { text: "Properties" }),
+      button("+ Add property", () => addTerm(material.properties, undefined, "property"), "text compact"),
+    ]),
+    ...(keys.length
+      ? [element("div", { class: "property-table" }, keys.map((key) =>
+          boundedRow(material.properties, key, undefined, `${material.materialKey}:properties`)))]
+      : [element("p", { class: "empty", text: "No material properties yet. Unit weight is the one nearly every calculation needs." })]),
+  ]);
+}
+
+function renderConstitutive(material) {
+  const models = (material.constitutiveModels ??= []);
+  const rows = models.map((cm, index) => {
+    cm.parameters ??= {};
+    const id = `${material.materialKey}:cm:${cm.id}`;
+    const known = constitutiveKind(cm.kind);
+    const parameterKeys = Object.keys(cm.parameters);
+    const wanted = kindParameters(cm.kind).slice(0, 2).map((parameter) => parameter.key).join(" and ");
+    return element("div", { class: "cm" }, [
+      element("div", { class: "cm-head" }, [
+        element("label", { class: "mini-field" }, [
+          element("span", { text: "Id" }),
+          element("input", {
+            value: cm.id ?? "", placeholder: "mc-01",
+            onchange: (event) => { cm.id = event.target.value; changed(); render(); },
+          }),
+        ]),
+        choiceField("Kind", "mini-field", `${id}:kind`, cm.kind,
+          constitutiveKinds.map((entry) => ({ value: entry.kind, text: `${entry.kind} — ${entry.label}` })),
+          (value) => {
+            cm.kind = value;
+            // A kind that is only ever run one way says so — unless the engineer
+            // has already answered, in which case leave their answer alone.
+            if (!cm.drainage) setOptional(cm, "drainage", constitutiveKind(value)?.drainage ?? "");
+          }),
+        choiceField("Drainage", "mini-field", `${id}:drainage`, cm.drainage,
+          [{ value: "", text: "Not stated" }, "drained", "undrained"],
+          (value) => setOptional(cm, "drainage", value)),
+        element("div", { class: "row-actions" }, [
+          button("×", () => {
+            if (confirm(`Remove constitutive model '${cm.id}'?`)) { models.splice(index, 1); changed(); render(); }
+          }, "icon danger", { title: "Remove model" }),
+        ]),
+      ]),
+      element("div", { class: "cm-parameters" }, [
+        element("div", { class: "panel-title" }, [
+          element("h2", { text: "Parameters" }),
+          button("+ Add parameter", () => addTerm(cm.parameters, cm.kind, "parameter"), "text compact"),
+        ]),
+        ...(parameterKeys.length
+          ? parameterKeys.map((key) => boundedRow(cm.parameters, key, cm.kind, `${id}:parameters`))
+          : [element("p", { class: "empty", text: known ? `No parameters yet. ${known.label} needs ${wanted}.` : "No parameters yet." })]),
+      ]),
+    ]);
+  });
+  return element("div", { class: "panel properties-panel" }, [
+    element("div", { class: "panel-title" }, [
+      element("h2", { text: "Constitutive models" }),
+      button("+ Add model", () => addConstitutiveModel(material), "text compact"),
+    ]),
+    ...(rows.length ? rows : [element("p", { class: "empty", text: "No constitutive models yet, so this material cannot be analysed." })]),
+  ]);
+}
+
+function addConstitutiveModel(material) {
+  const models = (material.constitutiveModels ??= []);
+  const [first] = constitutiveKinds;
+  let id = "cm-1";
+  let suffix = 1;
+  while (models.some((cm) => cm.id === id)) id = `cm-${++suffix}`;
+  models.push({ id, kind: first.kind, ...(first.drainage ? { drainage: first.drainage } : {}), parameters: {} });
+  changed(); render();
 }
 
 function renderAdvancedJson(material) {
   const details = element("details", { class: "panel advanced" });
-  details.append(element("summary", { text: "Advanced constitutive models (JSON)" }));
+  details.append(element("summary", { text: "Constitutive models as JSON" }));
   const textarea = element("textarea", { class: "code-editor", spellcheck: "false" });
   textarea.value = JSON.stringify(material.constitutiveModels ?? [], null, 2);
-  details.append(element("p", { class: "note", text: "Profiles, drainage and open constitutive-model parameters are preserved here without narrowing the format." }), textarea,
+  details.append(element("p", { class: "note", text: "The same models the form above edits. Depth profiles and metadata have no visual control yet, and are edited here." }), textarea,
     button("Apply advanced JSON", () => {
       try {
         const value = JSON.parse(textarea.value);
@@ -544,6 +730,11 @@ function renderEmpty(title, description, action, actionLabel) {
 function render() {
   if (!state.document) renderLanding();
   else renderShell();
+  const opened = app.querySelector("[data-focus]");
+  if (opened) {
+    state.focusNext = null;
+    opened.focus();
+  }
 }
 
 render();

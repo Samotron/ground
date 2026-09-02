@@ -11,6 +11,7 @@ use crate::model::{
     ProfileDatum,
 };
 use crate::store::State;
+use crate::vocabulary;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -64,19 +65,6 @@ impl Issue {
         }
     }
 }
-
-/// Constitutive models this build understands well enough to check parameters
-/// for. Anything else is carried through untouched and warned about once, so a
-/// file written by a newer tool still round-trips through this one intact.
-const KNOWN_CONSTITUTIVE_KINDS: &[&str] = &[
-    "mohr-coulomb",
-    "undrained-tresca",
-    "linear-elastic",
-    "hardening-soil",
-    "cam-clay",
-    "modified-cam-clay",
-    "hoek-brown",
-];
 
 /// Validate a whole file.
 pub fn validate_state(state: &State) -> Vec<Issue> {
@@ -335,7 +323,7 @@ fn validate_constitutive(material_key: &str, cm: &ConstitutiveModel, issues: &mu
         )
     };
 
-    if !KNOWN_CONSTITUTIVE_KINDS.contains(&cm.kind.as_str()) {
+    if !vocabulary::knows_constitutive_kind(&cm.kind) {
         issues.push(Issue::warn(
             None,
             path("kind"),

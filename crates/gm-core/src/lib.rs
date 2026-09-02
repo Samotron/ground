@@ -22,6 +22,7 @@ pub mod schema;
 pub mod store;
 pub mod sync;
 pub mod validate;
+pub mod vocabulary;
 pub mod wire;
 
 pub use error::{Error, Result};

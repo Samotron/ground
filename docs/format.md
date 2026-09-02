@@ -197,6 +197,19 @@ File-scoped and reusable across models. Carries general `properties`
 they need; unknown kinds are carried through untouched and warned about once, so
 a file written by a newer tool still round-trips through an older one intact.
 
+### The suggested vocabulary
+
+`assets/vocabulary.json` lists the property names, unit strings, soil classes
+and constitutive kinds that come up over and over, with the unit each quantity
+is normally given in. It is advisory, not a schema: none of those four are
+closed sets and anything outside the file is valid and round-trips untouched.
+
+It exists because the openness has a cost — `kN/m2` where `kN/m3` was meant is a
+value no validator can catch — so the browser editor offers the list first and
+takes free text second. One part of it is load-bearing: `constitutiveKinds` is
+the set `gm_core` checks parameters for, read from this file rather than copied,
+so the editor cannot offer a kind that `gm validate` would then warn about.
+
 ### `GroundModel`
 
 One vertical succession at one location. `layers` is ordered top-down; each

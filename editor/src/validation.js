@@ -1,3 +1,8 @@
+// Kinds gm-core checks the parameters of, read from the same file gm_core
+// reads: anything else is carried through untouched and warned about once, so
+// a file written by a newer tool still round-trips through this one intact.
+import { KNOWN_CONSTITUTIVE_KINDS } from "./vocabulary.js";
+
 const issue = (severity, fieldPath, message, modelKey) => ({
   severity,
   fieldPath,
@@ -6,19 +11,6 @@ const issue = (severity, fieldPath, message, modelKey) => ({
 });
 
 const present = (value) => value !== undefined && value !== null;
-
-// Kinds gm-core checks the parameters of. Anything else is carried through
-// untouched and warned about once, so a file written by a newer tool still
-// round-trips through this one intact.
-const KNOWN_CONSTITUTIVE_KINDS = new Set([
-  "mohr-coulomb",
-  "undrained-tresca",
-  "linear-elastic",
-  "hardening-soil",
-  "cam-clay",
-  "modified-cam-clay",
-  "hoek-brown",
-]);
 
 // The rules for a bounded quantity, shared by material properties and
 // constitutive parameters. Kept in step with gm_core::validate::validate_bounded

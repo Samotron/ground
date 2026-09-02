@@ -113,6 +113,14 @@ svg.section { display: block; width: 100%; max-height: calc(100vh - 210px); padd
 .properties-panel, .advanced { margin-top: 14px; overflow: hidden; }
 .property-row { display: grid; grid-template-columns: minmax(130px, 1.3fr) repeat(3, minmax(75px, .7fr)) minmax(70px, .7fr) auto; gap: 8px; align-items: end; padding: 9px 11px; border-bottom: 1px solid var(--line); }
 .property-row:last-child { border-bottom: 0; }
+.combo { display: flex; gap: 5px; align-items: center; }
+.combo input { flex: 1; min-width: 0; }
+.cm { padding: 11px 11px 12px; border-bottom: 1px solid var(--line); }
+.cm:last-child { border-bottom: 0; }
+.cm-head { display: grid; grid-template-columns: minmax(90px, .8fr) minmax(170px, 1.5fr) minmax(100px, .8fr) auto; gap: 8px; align-items: end; }
+.cm-parameters { margin-top: 9px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.cm-parameters .panel-title { min-height: 34px; padding: 6px 9px 5px 11px; background: var(--bg); }
+.cm-parameters .empty { padding: 8px 11px; font-size: 12px; }
 .advanced { padding: 0 17px 17px; }
 .advanced summary { cursor: pointer; padding: 13px 0; font-weight: 600; color: var(--muted); }
 .code-editor, .json-editor { font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2; }
@@ -187,6 +195,7 @@ button.issue:hover { background: var(--bg); }
   .property-row { grid-template-columns: 1fr 1fr 1fr; }
   .property-row .property-0 { grid-column: span 2; }
   .property-row .button { align-self: end; }
+  .cm-head { grid-template-columns: 1fr 1fr; }
   footer { flex-direction: column; }
 }
 
