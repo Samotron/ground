@@ -290,7 +290,7 @@ fn a_base_level_above_the_deepest_layer_is_an_error() {
     assert!(
         issues
             .iter()
-            .any(|i| i.severity == validate::Severity::Error && i.field_path == "base_level"),
+            .any(|i| i.severity == validate::Severity::Error && i.field_path == "baseLevel"),
         "expected a base_level error, got {issues:#?}"
     );
 }

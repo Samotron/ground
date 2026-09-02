@@ -1,47 +1,10 @@
-:root {
-  --bg: #f5f3ef;
-  --panel: #fffefa;
-  --ink: #20201d;
-  --muted: #716e66;
-  --faint: #9c988f;
-  --line: #ddd9d0;
-  --line-strong: #c9c3b8;
-  --accent: #875426;
-  --accent-soft: #f2e7d9;
-  --water: #2874a6;
-  --error: #ae3129;
-  --error-soft: #f9e9e7;
-  --warning: #926711;
-  --warning-soft: #f8f0d8;
-  --success: #306b47;
-  --success-soft: #e5f1e9;
-  --shadow: 0 1px 2px rgb(31 26 19 / 5%), 0 10px 28px rgb(31 26 19 / 4%);
-  color-scheme: light;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-synthesis: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #171714;
-    --panel: #211f1b;
-    --ink: #eeeae2;
-    --muted: #aaa398;
-    --faint: #7d776f;
-    --line: #39362f;
-    --line-strong: #514c43;
-    --accent: #d9a06b;
-    --accent-soft: #3a2b20;
-    --error: #eb847d;
-    --error-soft: #3c2423;
-    --warning: #dbb662;
-    --warning-soft: #352f20;
-    --success: #7bc694;
-    --success-soft: #203329;
-    --shadow: none;
-    color-scheme: dark;
-  }
-}
+/*
+ * The editor's own chrome: header, tabs, sidebar, forms, dialogs.
+ *
+ * Colour and type tokens and the section drawing come from assets/gm.css,
+ * imported ahead of this file by main.js and shared verbatim with `gm ui`, so
+ * the two surfaces cannot drift apart in how they present a ground model.
+ */
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5; }
@@ -144,19 +107,8 @@ textarea { min-height: 70px; resize: vertical; }
 .empty { padding: 8px 17px; color: var(--muted); font-style: italic; }
 
 .section-panel { position: sticky; top: 128px; overflow: hidden; }
+/* Sized to the pane; everything inside it is styled by assets/gm.css. */
 svg.section { display: block; width: 100%; max-height: calc(100vh - 210px); padding: 12px; }
-svg.section .layer { fill: var(--fill); }
-svg.section .boundary { stroke: var(--ink); stroke-width: 1; opacity: .55; }
-svg.section .boundary.base { stroke-width: 1.6; opacity: .8; }
-svg.section .ground { stroke: var(--ink); stroke-width: 2.2; }
-svg.section .level { fill: var(--ink); font-size: 12px; text-anchor: end; font-family: ui-monospace, Menlo, monospace; }
-svg.section .depth { fill: var(--muted); font-size: 10.5px; text-anchor: end; font-family: ui-monospace, Menlo, monospace; }
-svg.section .stratum { fill: var(--ink); font-size: 12px; text-anchor: middle; }
-svg.section .stratum-outside { fill: var(--muted); font-size: 11px; }
-svg.section .water { stroke: var(--water); stroke-width: 1.4; stroke-dasharray: 5 3; }
-svg.section .water-mark { fill: var(--water); }
-svg.section .water-label { fill: var(--water); font-size: 11px; font-family: ui-monospace, Menlo, monospace; }
-@media (prefers-color-scheme: dark) { svg.section .layer { fill: var(--fill-dark); } }
 
 .properties-panel, .advanced { margin-top: 14px; overflow: hidden; }
 .property-row { display: grid; grid-template-columns: minmax(130px, 1.3fr) repeat(3, minmax(75px, .7fr)) minmax(70px, .7fr) auto; gap: 8px; align-items: end; padding: 9px 11px; border-bottom: 1px solid var(--line); }

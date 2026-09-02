@@ -314,6 +314,27 @@ would order arbitrarily, and once files sync between machines a skewed clock
 could place a child before its own parent. The parent graph is the only thing
 that actually knows what came first.
 
+## Presentation
+
+Not part of the format, but shared by the tools that render it, and worth
+recording because two implementations of the same rules drift.
+
+**Material colour** is derived from the material key so that a stratum keeps the
+same colour on every page and in every tool: FNV-1a over the key's UTF-8 bytes,
+multiplied by 137 (a golden-angle step, so adjacent keys land far apart on the
+wheel), taken modulo 360, then clamped to at least 1.
+
+```
+hue(key) = max(1, (fnv1a(key) * 137 mod 2^32) mod 360)
+```
+
+The order matters: clamping before the modulo leaves 0 reachable and disagrees
+with this rule for roughly one key in 360.
+
+`assets/conformance.json` pins the agreed hues and the exact set of validation
+issues a known-bad document must produce. Both the Rust core and the browser
+editor read it in their test suites.
+
 ## Identifying a file
 
 - `PRAGMA application_id` is `0x474D444C` (ASCII `GMDL`).

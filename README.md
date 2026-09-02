@@ -201,6 +201,27 @@ $ npm install
 $ npm run dev
 ```
 
+### Keeping the two in step
+
+The editor and `gm ui` are two implementations of the same presentation, and two
+implementations drift. Three things are shared rather than duplicated:
+
+| | |
+|---|---|
+| `assets/gm.css` | colour and type tokens, and the section drawing. Included by `page.rs`, imported by `main.js` |
+| `assets/conformance.json` | the agreed material colours, and the exact issue set a known-bad document must produce |
+| the rules themselves | `gm_core::validate` and `editor/src/validation.js`, pinned against that fixture |
+
+`just conformance` runs both suites against the fixture. It exists because the
+way you find out that two validators disagree is an engineer saving a file in
+the editor that `gm commit` then refuses — which is exactly what would have
+happened before: a value outside its own stated bounds was an error in the Rust
+validator and a warning here.
+
+Each surface keeps its own chrome. A viewer and an editor legitimately differ in
+forms, tabs and navigation; they must not differ in how they draw ground or in
+what they call an error.
+
 The Pages workflow tests and builds the app on pushes to `main`. In the GitHub
 repository settings, choose **GitHub Actions** as the Pages source once; after
 that deployment is automatic. The Vite base path is relative, so the build
@@ -300,7 +321,9 @@ expensive to change.
 
 All of it works: the format, the object store, history, diff, checkout,
 validation, integrity checking, JSON interchange, clone/push/pull with
-three-way merge over both files and HTTP, the web UI, and the CLI. 143 tests.
+three-way merge over both files and HTTP, the web UI, and the CLI.
+146 Rust tests and 8 in the browser editor, three of which pin the two
+implementations against each other.
 
 Known limits, in rough order of how much they'd matter:
 

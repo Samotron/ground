@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - "editor/**"
+      # The editor shares its palette, section drawing and validation rules
+      # with gm-core through these files, and its tests assert the two agree.
+      # A change here has to re-run them, or drift ships unnoticed.
+      - "assets/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 

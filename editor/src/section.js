@@ -1,12 +1,21 @@
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+// FNV-1a over the key's bytes, then a golden-angle multiple so adjacent keys
+// land far apart on the colour wheel rather than in neighbouring shades. A
+// material therefore keeps its colour on every page, in both this editor and
+// `gm ui`.
+//
+// Take the modulo *before* clamping to 1, matching gm-core. Clamping first
+// leaves 0 reachable, which would give a different hue from the Rust
+// implementation for roughly one key in 360 — the key "VI" is one.
+// assets/conformance.json pins the agreed values.
 export function hue(key) {
   let hash = 2166136261;
   for (const byte of new TextEncoder().encode(key)) {
     hash ^= byte;
     hash = Math.imul(hash, 16777619) >>> 0;
   }
-  return Math.max(1, Math.imul(hash, 137) >>> 0) % 360;
+  return Math.max((Math.imul(hash, 137) >>> 0) % 360, 1);
 }
 
 function svgElement(name, attributes = {}, text) {

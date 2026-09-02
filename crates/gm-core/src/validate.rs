@@ -37,7 +37,10 @@ pub struct Issue {
     /// The model this concerns, when it concerns one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_key: Option<String>,
-    /// A dotted path into the document, e.g. `layers[2].topLevel`.
+    /// A path into the interchange document, e.g. `layers[2].topLevel` or
+    /// `materials.LONDON_CLAY.properties.unitWeight`. Model-scoped paths are
+    /// relative to the model named by `model_key`. camelCase throughout,
+    /// because that is what the document itself uses.
     pub field_path: String,
     pub message: String,
 }
@@ -83,7 +86,7 @@ pub fn validate_state(state: &State) -> Vec<Issue> {
     if state.file_metadata.vertical_datum.is_none() {
         issues.push(Issue::warn(
             None,
-            "vertical_datum",
+            "file.verticalDatum",
             "no vertical datum declared; every level in this file is therefore ambiguous",
         ));
     }
@@ -95,7 +98,7 @@ pub fn validate_state(state: &State) -> Vec<Issue> {
     {
         issues.push(Issue::warn(
             None,
-            "crs",
+            "file.crs",
             "models carry coordinates but the file declares no CRS",
         ));
     }
@@ -132,12 +135,12 @@ pub fn validate_model(
     let allow_gaps = model.settings.allow_gaps;
 
     if model.model_key.trim().is_empty() {
-        issues.push(Issue::error(Some(key), "model_key", "model key is empty"));
+        issues.push(Issue::error(Some(key), "modelKey", "model key is empty"));
     }
     if !(9.0..=11.0).contains(&model.gamma_w) {
         issues.push(Issue::warn(
             Some(key),
-            "gamma_w",
+            "gammaW",
             format!(
                 "unit weight of water is {} kN/m3, which is outside the plausible 9-11 range",
                 model.gamma_w
@@ -187,7 +190,7 @@ pub fn validate_model(
     match model.surface_level {
         None => issues.push(Issue::warn(
             Some(key),
-            "surface_level",
+            "surfaceLevel",
             "no surface level; depths below ground cannot be computed for this model",
         )),
         Some(surface) if surface != first_top => {
@@ -195,9 +198,9 @@ pub fn validate_model(
                 "surface level {surface} does not meet the top of the first layer at {first_top}"
             );
             issues.push(if allow_gaps {
-                Issue::warn(Some(key), "surface_level", message)
+                Issue::warn(Some(key), "surfaceLevel", message)
             } else {
-                Issue::error(Some(key), "surface_level", message)
+                Issue::error(Some(key), "surfaceLevel", message)
             });
         }
         Some(_) => {}
@@ -206,12 +209,12 @@ pub fn validate_model(
     match model.base_level {
         None => issues.push(Issue::warn(
             Some(key),
-            "base_level",
+            "baseLevel",
             "no base level; the deepest layer has no bottom and the model has no vertical extent",
         )),
         Some(base) if base >= last_top => issues.push(Issue::error(
             Some(key),
-            "base_level",
+            "baseLevel",
             format!("base level {base} is not below the top of the deepest layer at {last_top}"),
         )),
         Some(_) => {}

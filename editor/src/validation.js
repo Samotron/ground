@@ -7,6 +7,48 @@ const issue = (severity, fieldPath, message, modelKey) => ({
 
 const present = (value) => value !== undefined && value !== null;
 
+// Kinds gm-core checks the parameters of. Anything else is carried through
+// untouched and warned about once, so a file written by a newer tool still
+// round-trips through this one intact.
+const KNOWN_CONSTITUTIVE_KINDS = new Set([
+  "mohr-coulomb",
+  "undrained-tresca",
+  "linear-elastic",
+  "hardening-soil",
+  "cam-clay",
+  "modified-cam-clay",
+  "hoek-brown",
+]);
+
+// The rules for a bounded quantity, shared by material properties and
+// constitutive parameters. Kept in step with gm_core::validate::validate_bounded
+// and pinned by assets/conformance.json: a value outside its own stated bounds
+// is an **error**, not a warning, because it is internally inconsistent rather
+// than merely surprising — and because `gm commit` will refuse it, so warning
+// here would let someone save a file the tool then rejects.
+function validateBounded(issues, path, bounded) {
+  for (const name of ["value", "lower", "upper"]) {
+    if (present(bounded?.[name]) && !Number.isFinite(Number(bounded[name]))) {
+      issues.push(issue("error", `${path}.${name}`, "not a finite number"));
+    }
+  }
+  if (present(bounded?.lower) && present(bounded?.upper) && Number(bounded.lower) > Number(bounded.upper)) {
+    issues.push(issue("error", `${path}.lower`, `lower bound ${bounded.lower} exceeds upper bound ${bounded.upper}`));
+  }
+  if (present(bounded?.value) && present(bounded?.lower) && Number(bounded.value) < Number(bounded.lower)) {
+    issues.push(issue("error", `${path}.value`, `value ${bounded.value} is below its own lower bound ${bounded.lower}`));
+  }
+  if (present(bounded?.value) && present(bounded?.upper) && Number(bounded.value) > Number(bounded.upper)) {
+    issues.push(issue("error", `${path}.value`, `value ${bounded.value} is above its own upper bound ${bounded.upper}`));
+  }
+  if (!present(bounded?.value) && !bounded?.profile) {
+    issues.push(issue("warning", path, "parameter has neither a value nor a depth profile"));
+  }
+  if (!present(bounded?.unit)) {
+    issues.push(issue("warning", `${path}.unit`, "no unit given, so the number cannot be interpreted safely"));
+  }
+}
+
 export function validateDocument(document) {
   const issues = [];
   const file = document?.file ?? {};
@@ -44,18 +86,50 @@ export function validateDocument(document) {
     }
 
     for (const [propertyKey, bounded] of Object.entries(material.properties ?? {})) {
-      if (present(bounded.lower) && present(bounded.upper) && Number(bounded.lower) > Number(bounded.upper)) {
-        issues.push(issue("error", `${path}.properties.${propertyKey}`, "lower bound is greater than upper bound"));
-      }
-      if (present(bounded.value) && present(bounded.lower) && Number(bounded.value) < Number(bounded.lower)) {
-        issues.push(issue("warning", `${path}.properties.${propertyKey}.value`, "value is below its lower bound"));
-      }
-      if (present(bounded.value) && present(bounded.upper) && Number(bounded.value) > Number(bounded.upper)) {
-        issues.push(issue("warning", `${path}.properties.${propertyKey}.value`, "value is above its upper bound"));
-      }
+      validateBounded(issues, `${path}.properties.${propertyKey}`, bounded);
     }
-    if (!(material.constitutiveModels ?? []).length) {
+
+    const constitutiveModels = material.constitutiveModels ?? [];
+    if (!constitutiveModels.length) {
       issues.push(issue("warning", `${path}.constitutiveModels`, `material '${key}' has no constitutive model, so it cannot be analysed`));
+    }
+    const modelIds = new Set();
+    for (const cm of constitutiveModels) {
+      const cmPath = `${path}.constitutiveModels.${cm.id}`;
+      if (modelIds.has(cm.id)) {
+        issues.push(issue("error", cmPath, `duplicate constitutive model id '${cm.id}' in material '${key}'`));
+      }
+      modelIds.add(cm.id);
+
+      if (!KNOWN_CONSTITUTIVE_KINDS.has(cm.kind)) {
+        issues.push(issue("warning", `${cmPath}.kind`, `constitutive model kind '${cm.kind}' is not one this build knows; its parameters are preserved but unchecked`));
+      }
+      for (const [parameterKey, bounded] of Object.entries(cm.parameters ?? {})) {
+        validateBounded(issues, `${cmPath}.parameters.${parameterKey}`, bounded);
+      }
+
+      if (cm.kind === "mohr-coulomb") {
+        const phi = cm.parameters?.frictionAngleDeg;
+        if (present(phi?.value)) {
+          const value = Number(phi.value);
+          if (!(value >= 0 && value < 90)) {
+            issues.push(issue("error", `${cmPath}.parameters.frictionAngleDeg`, `friction angle of ${value} degrees is not physically meaningful`));
+          }
+        } else {
+          issues.push(issue("warning", `${cmPath}.parameters.frictionAngleDeg`, "Mohr-Coulomb model has no friction angle"));
+        }
+        if (!cm.parameters?.cohesion) {
+          issues.push(issue("warning", `${cmPath}.parameters.cohesion`, "Mohr-Coulomb model has no cohesion; assumed zero by most consumers"));
+        }
+      }
+      if (cm.kind === "undrained-tresca") {
+        if (!cm.parameters?.undrainedShearStrength) {
+          issues.push(issue("warning", `${cmPath}.parameters.undrainedShearStrength`, "undrained model has no undrained shear strength"));
+        }
+        if (cm.drainage === "drained") {
+          issues.push(issue("warning", `${cmPath}.drainage`, "an undrained Tresca model is marked as drained"));
+        }
+      }
     }
   }
 

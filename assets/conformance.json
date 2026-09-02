@@ -1,0 +1,180 @@
+{
+  "note": [
+    "Shared conformance fixture for gm's two implementations: the Rust core and",
+    "the browser editor. Both test suites read this file and must agree.",
+    "",
+    "It exists because two implementations of the same rules drift, quietly, and",
+    "the way you find out is an engineer saving a file in the editor that",
+    "`gm commit` then refuses. Hue vectors keep a material the same colour in",
+    "both; the validation case keeps 'what is an error' the same in both.",
+    "",
+    "The document deliberately avoids two rules that cannot be exercised through",
+    "a round trip: a layer referencing an undefined material, and two layers at",
+    "the same level. Both are caught, but the materialised tables reject them",
+    "before the validator is reached, so they are tested separately."
+  ],
+  "hues": {
+    "MADE_GROUND": 126,
+    "ALLUVIUM": 48,
+    "TERRACE_GRAVEL": 241,
+    "LONDON_CLAY": 217,
+    "CH-150": 221,
+    "": 53,
+    "VI": 1
+  },
+  "document": {
+    "type": "gm.file/1",
+    "schemaVersion": "0.1.0",
+    "file": {
+      "name": "Conformance",
+      "crs": "EPSG:27700"
+    },
+    "materials": [
+      {
+        "materialKey": "FILL",
+        "name": "Fill",
+        "properties": {
+          "unitWeight": {
+            "value": 45.0,
+            "lower": 40.0,
+            "upper": 50.0,
+            "unit": "kN/m3"
+          },
+          "cohesion": {
+            "value": 5.0,
+            "lower": 10.0,
+            "upper": 20.0,
+            "unit": "kPa"
+          }
+        },
+        "constitutiveModels": []
+      },
+      {
+        "materialKey": "CLAY",
+        "name": "Clay",
+        "properties": {
+          "unitWeight": {
+            "value": 20.0,
+            "lower": 25.0,
+            "upper": 15.0,
+            "unit": "kN/m3"
+          },
+          "permeability": {
+            "value": 1e-06
+          }
+        },
+        "constitutiveModels": [
+          {
+            "id": "mc",
+            "kind": "mohr-coulomb",
+            "drainage": "drained",
+            "parameters": {
+              "frictionAngleDeg": {
+                "value": 25,
+                "unit": "deg"
+              },
+              "cohesion": {
+                "value": 3,
+                "unit": "kPa"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "materialKey": "UNUSED",
+        "name": "Unused",
+        "properties": {
+          "unitWeight": {
+            "value": 19.0,
+            "unit": "kN/m3"
+          }
+        },
+        "constitutiveModels": []
+      }
+    ],
+    "models": [
+      {
+        "modelKey": "M1",
+        "surfaceLevel": 11.0,
+        "baseLevel": 6.0,
+        "gammaW": 15.0,
+        "groundwater": {
+          "kind": "unknown"
+        },
+        "layers": [
+          {
+            "topLevel": 10.0,
+            "materialKey": "FILL"
+          },
+          {
+            "topLevel": 12.0,
+            "materialKey": "CLAY"
+          }
+        ]
+      }
+    ]
+  },
+  "expectedIssues": [
+    {
+      "severity": "error",
+      "fieldPath": "materials.CLAY.properties.unitWeight.lower"
+    },
+    {
+      "severity": "error",
+      "fieldPath": "materials.CLAY.properties.unitWeight.value"
+    },
+    {
+      "severity": "error",
+      "fieldPath": "materials.CLAY.properties.unitWeight.value"
+    },
+    {
+      "severity": "error",
+      "fieldPath": "materials.FILL.properties.cohesion.value"
+    },
+    {
+      "severity": "error",
+      "fieldPath": "layers[1].topLevel",
+      "modelKey": "M1"
+    },
+    {
+      "severity": "error",
+      "fieldPath": "surfaceLevel",
+      "modelKey": "M1"
+    },
+    {
+      "severity": "warning",
+      "fieldPath": "file.verticalDatum"
+    },
+    {
+      "severity": "warning",
+      "fieldPath": "materials.CLAY.properties.permeability.unit"
+    },
+    {
+      "severity": "warning",
+      "fieldPath": "materials.FILL.constitutiveModels"
+    },
+    {
+      "severity": "warning",
+      "fieldPath": "materials.FILL.properties.unitWeight"
+    },
+    {
+      "severity": "warning",
+      "fieldPath": "materials.UNUSED"
+    },
+    {
+      "severity": "warning",
+      "fieldPath": "materials.UNUSED.constitutiveModels"
+    },
+    {
+      "severity": "warning",
+      "fieldPath": "gammaW",
+      "modelKey": "M1"
+    },
+    {
+      "severity": "warning",
+      "fieldPath": "groundwater",
+      "modelKey": "M1"
+    }
+  ]
+}

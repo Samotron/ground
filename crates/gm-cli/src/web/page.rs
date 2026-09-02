@@ -21,38 +21,20 @@ pub fn escape(text: &str) -> String {
     out
 }
 
+/// Tokens and the section drawing, shared verbatim with the browser editor so
+/// the two surfaces cannot drift apart. See `assets/gm.css`.
+const SHARED: &str = include_str!("../../../../assets/gm.css");
+
+/// Chrome for the served pages only: header, nav, tables and panels. The
+/// editor has its own, because an editor and a viewer legitimately differ in
+/// everything except how they draw ground.
 const STYLE: &str = r#"
-:root {
-  --bg: #fbfaf8;
-  --panel: #ffffff;
-  --ink: #1c1a17;
-  --muted: #6b6459;
-  --line: #ddd8d0;
-  --accent: #7a4b1e;
-  --water: #2f6fa8;
-  --error: #a3261f;
-  --warn: #8a6414;
-  color-scheme: light dark;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #171614;
-    --panel: #201e1b;
-    --ink: #ece7df;
-    --muted: #9a9287;
-    --line: #363330;
-    --accent: #d09a63;
-    --water: #6fa8d8;
-    --error: #e2837c;
-    --warn: #d9b166;
-  }
-}
 * { box-sizing: border-box; }
 body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 15px/1.55 var(--font-sans);
 }
 header.top {
   border-bottom: 1px solid var(--line);
@@ -83,7 +65,7 @@ th {
 }
 td { padding: 7px 12px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums;
-                 font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+                 font-family: var(--font-mono); }
 .panel { background: var(--panel); border: 1px solid var(--line);
          border-radius: 8px; padding: 18px 20px; }
 .cols { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; }
@@ -91,34 +73,17 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums;
 dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 18px; margin: 0; font-size: 14px; }
 dl.facts dt { color: var(--muted); }
 dl.facts dd { margin: 0; }
-code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
-.hash { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+code, .mono { font-family: var(--font-mono); font-size: 13px; }
+.hash { color: var(--muted); font-family: var(--font-mono); font-size: 13px; }
 .note { color: var(--muted); font-size: 14px; }
 .tag { display: inline-block; padding: 1px 7px; border-radius: 999px;
        border: 1px solid var(--line); font-size: 12px; color: var(--muted); }
 .sev-error { color: var(--error); font-weight: 600; }
-.sev-warning { color: var(--warn); font-weight: 600; }
+.sev-warning { color: var(--warning); font-weight: 600; }
 .empty { color: var(--muted); font-style: italic; }
-.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
-          margin-right: 7px; vertical-align: baseline; border: 1px solid rgba(0,0,0,.18); }
 
-/* Section drawing */
+/* The editor fits the drawing into a pane; here it flows with the page. */
 svg.section { display: block; max-width: 100%; height: auto; }
-svg.section .layer { fill: var(--fill); stroke: none; }
-@media (prefers-color-scheme: dark) { svg.section .layer { fill: var(--fill-dark); } }
-svg.section .boundary { stroke: var(--ink); stroke-width: 1; opacity: .55; }
-svg.section .boundary.base { stroke-width: 1.6; opacity: .8; }
-svg.section .ground { stroke: var(--ink); stroke-width: 2.2; }
-svg.section .level { fill: var(--ink); font-size: 12px; text-anchor: end;
-                     font-family: ui-monospace, Menlo, monospace; }
-svg.section .depth { fill: var(--muted); font-size: 10.5px; text-anchor: end;
-                     font-family: ui-monospace, Menlo, monospace; }
-svg.section .stratum { fill: var(--ink); font-size: 12px; text-anchor: middle; }
-svg.section .stratum-outside { fill: var(--muted); font-size: 11px; }
-svg.section .water { stroke: var(--water); stroke-width: 1.4; stroke-dasharray: 5 3; }
-svg.section .water-mark { fill: var(--water); }
-svg.section .water-label { fill: var(--water); font-size: 11px;
-                           font-family: ui-monospace, Menlo, monospace; }
 "#;
 
 /// Wrap body content in the full page shell.
@@ -128,7 +93,7 @@ pub fn render(file_name: &str, title: &str, active: &str, body: &str) -> String 
         out,
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
-         <title>{} — {}</title><style>{STYLE}</style></head><body>",
+         <title>{} — {}</title><style>{SHARED}{STYLE}</style></head><body>",
         escape(title),
         escape(file_name)
     );

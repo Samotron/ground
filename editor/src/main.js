@@ -1,3 +1,5 @@
+// Shared with `gm ui` so both surfaces present a model identically.
+import "../../assets/gm.css";
 import "./style.css";
 import { drawSection, hue } from "./section.js";
 import {

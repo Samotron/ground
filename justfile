@@ -71,7 +71,7 @@ check: lint test
 
 # Everything: lints, tests, the example files, and the full UAT walkthrough.
 [group('check')]
-ci: lint test examples uat
+ci: lint test examples conformance uat
 
 # Build and test the browser editor deployed to GitHub Pages.
 [group('check')]
@@ -88,6 +88,15 @@ fix:
 [group('check')]
 fmt:
     cargo fmt --all
+
+# Check the Rust core and the browser editor still agree with each other.
+#
+# They share a palette, a section drawing and a set of validation rules, and
+# assets/conformance.json pins the agreement. Needs npm the first time.
+[group('check')]
+conformance:
+    cargo test --test conformance
+    cd editor && npm install --silent --no-audit --no-fund && npx vitest run src/conformance.test.js
 
 # Check every example file still imports and validates cleanly.
 [group('check')]

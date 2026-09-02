@@ -1,0 +1,117 @@
+/*
+ * Shared presentation for gm's two surfaces: the built-in `gm ui` server and
+ * the browser editor. This file is the single source of truth for both.
+ *
+ *   crates/gm-cli/src/web/page.rs   include_str!s it into the served page
+ *   editor/src/main.js              imports it ahead of the editor's own CSS
+ *
+ * It holds the two things that must look the same in both places: the colour
+ * and type tokens, and the section drawing. Everything else — the editor's
+ * forms, tabs and sidebar; the server's header and nav — is each surface's own
+ * business and lives in its own stylesheet. A viewer and an editor legitimately
+ * differ in chrome; they must not differ in how they draw ground.
+ *
+ * The section rules deliberately exclude the outer `svg.section` box, because
+ * the two surfaces size it differently: the server lets it flow with the page,
+ * the editor fits it to a pane.
+ */
+
+:root {
+  --bg: #f5f3ef;
+  --panel: #fffefa;
+  --ink: #20201d;
+  --muted: #716e66;
+  --faint: #9c988f;
+  --line: #ddd9d0;
+  --line-strong: #c9c3b8;
+  --accent: #875426;
+  --accent-soft: #f2e7d9;
+  --water: #2874a6;
+  --error: #ae3129;
+  --error-soft: #f9e9e7;
+  --warning: #926711;
+  --warning-soft: #f8f0d8;
+  --success: #306b47;
+  --success-soft: #e5f1e9;
+  --shadow: 0 1px 2px rgb(31 26 19 / 5%), 0 10px 28px rgb(31 26 19 / 4%);
+
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  color-scheme: light;
+  font-family: var(--font-sans);
+  font-synthesis: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171714;
+    --panel: #211f1b;
+    --ink: #eeeae2;
+    --muted: #aaa398;
+    --faint: #7d776f;
+    --line: #39362f;
+    --line-strong: #514c43;
+    --accent: #d9a06b;
+    --accent-soft: #3a2b20;
+    --water: #6fa8d8;
+    --error: #eb847d;
+    --error-soft: #3c2423;
+    --warning: #dbb662;
+    --warning-soft: #352f20;
+    --success: #7bc694;
+    --success-soft: #203329;
+    --shadow: none;
+    color-scheme: dark;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * The section drawing.
+ *
+ * Stratum fills arrive as inline `--fill` / `--fill-dark` custom properties,
+ * derived from the material key, so a material keeps its colour on every page
+ * of both surfaces.
+ * ------------------------------------------------------------------------ */
+
+svg.section .layer { fill: var(--fill); stroke: none; }
+svg.section .boundary { stroke: var(--ink); stroke-width: 1; opacity: .55; }
+svg.section .boundary.base { stroke-width: 1.6; opacity: .8; }
+svg.section .ground { stroke: var(--ink); stroke-width: 2.2; }
+svg.section .level {
+  fill: var(--ink);
+  font-size: 12px;
+  text-anchor: end;
+  font-family: var(--font-mono);
+}
+svg.section .depth {
+  fill: var(--muted);
+  font-size: 10.5px;
+  text-anchor: end;
+  font-family: var(--font-mono);
+}
+svg.section .stratum { fill: var(--ink); font-size: 12px; text-anchor: middle; }
+svg.section .stratum-outside { fill: var(--muted); font-size: 11px; }
+svg.section .water { stroke: var(--water); stroke-width: 1.4; stroke-dasharray: 5 3; }
+svg.section .water-mark { fill: var(--water); }
+svg.section .water-label {
+  fill: var(--water);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  svg.section .layer { fill: var(--fill-dark); }
+}
+
+/* A material's colour beside its name, matching its stratum in the drawing. */
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 7px;
+  vertical-align: baseline;
+  border: 1px solid rgb(0 0 0 / 18%);
+}
