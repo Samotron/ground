@@ -1,0 +1,131 @@
+// Ground-model exchange database
+// Portable initial design for SQLite or DuckDB
+// One self-contained database file may hold multiple 1D ground models.
+// JSON columns are declared as json for clarity. SQLite implementations may
+// store these as TEXT with JSON validation; DuckDB can use its JSON type.
+
+Project ground_model_file {
+  database_type: 'SQLite / DuckDB'
+  Note: 'Initial schema for a self-contained ground-model file containing multiple 1D models.'
+}
+
+Table file_metadata {
+  id integer [primary key]
+  file_id varchar [not null, unique, note: 'Application-generated UUID or ULID.']
+  name varchar [not null]
+  description text
+  schema_version varchar [not null]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+  crs varchar [note: 'Horizontal CRS identifier, for example EPSG:27700.']
+  vertical_datum varchar [note: 'For example Ordnance Datum Newlyn.']
+  metadata json [note: 'Extensible file-level metadata, authorship, software version and custom fields.']
+}
+
+Table ground_models {
+  id varchar [primary key, note: 'UUID or ULID.']
+  file_id varchar [not null]
+  model_key varchar [not null, note: 'Human-readable identifier unique within the file.']
+  name varchar
+  description text
+  model_type varchar [not null, default: '1d', note: 'Initially 1d; allows later extension without changing identity.']
+  surface_level double
+  x double
+  y double
+  gamma_w double [not null, default: 9.81]
+  groundwater json [not null, note: 'Examples: {"kind":"dry"}, {"kind":"hydrostatic","depth":2.5}, or {"kind":"unknown"}.']
+  settings json [note: 'Model build settings such as allowGaps and profileSublayerThickness.']
+  metadata json [note: 'Source, chainage, asset references and other extensible identifying fields.']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    (file_id, model_key) [unique]
+    (file_id, x, y)
+  }
+}
+
+Table materials {
+  id varchar [primary key, note: 'UUID or ULID.']
+  file_id varchar [not null]
+  material_key varchar [not null]
+  name varchar
+  description text
+  soil_class varchar
+  properties json [not null, note: 'General material properties using bounded parameter objects.']
+  constitutive_models json [not null, note: 'Array of typed constitutive models and their bounded parameters.']
+  provenance json [note: 'Material-level evidence, interpretation method and source references.']
+  metadata json
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    (file_id, material_key) [unique]
+  }
+}
+
+Table ground_layers {
+  id varchar [primary key, note: 'UUID or ULID.']
+  ground_model_id varchar [not null]
+  layer_order integer [not null]
+  top_level double [not null, note: 'The top level of the unit']
+  material_id varchar [not null]
+  description text
+  source json [note: 'Source references and interpretation provenance for this layer boundary or interval.']
+  generated_from_profile boolean [not null, default: false]
+  metadata json
+
+  indexes {
+    (ground_model_id, layer_order) [unique]
+    (ground_model_id, top_level) [unique]
+    material_id
+  }
+}
+
+Table model_issues {
+  id varchar [primary key]
+  ground_model_id varchar [not null]
+  severity varchar [not null, note: 'error or warning']
+  field_path varchar [not null]
+  message text [not null]
+  created_at timestamp [not null]
+
+  Note: 'Optional persisted validation results. These are audit or operational data, not the authoritative ground model.'
+}
+
+// A file contains many 1D ground models.
+Ref file_ground_models: ground_models.file_id > file_metadata.file_id
+
+// Materials are reusable across multiple 1D models in the same file.
+Ref file_materials: materials.file_id > file_metadata.file_id
+
+// Each model contains an ordered set of layers.
+Ref model_layers: ground_layers.ground_model_id > ground_models.id
+
+// Each layer references a reusable material.
+Ref layer_material: ground_layers.material_id > materials.id
+
+
+
+Ref model_validation_issues: model_issues.ground_model_id > ground_models.id
+
+Records file_metadata(id, file_id, name, schema_version, created_at, updated_at, crs, vertical_datum) {
+  1, 'file-001', 'Example multi-profile ground model', '0.1.0', '2026-09-02 14:00:00', '2026-09-02 14:00:00', 'EPSG:27700', 'Ordnance Datum Newlyn'
+}
+
+Records ground_models(id, file_id, model_key, name, model_type, surface_level, x, y, gamma_w, groundwater, settings, created_at, updated_at) {
+  'gm-001', 'file-001', 'CH-100', 'Chainage 100', '1d', 82.5, 384100.0, 397200.0, 9.81, '{"kind":"hydrostatic","depth":2.5}', '{"allowGaps":false,"profileSublayerThickness":0.5}', '2026-09-02 14:00:00', '2026-09-02 14:00:00'
+  'gm-002', 'file-001', 'CH-125', 'Chainage 125', '1d', 81.9, 384125.0, 397202.0, 9.81, '{"kind":"unknown"}', '{"allowGaps":false,"profileSublayerThickness":0.5}', '2026-09-02 14:00:00', '2026-09-02 14:00:00'
+}
+
+Records materials(id, file_id, material_key, name, soil_class, properties, constitutive_models, provenance, created_at, updated_at) {
+  'mat-001', 'file-001', 'MADE_GROUND', 'Made Ground', 'anthropogenic', '{"unitWeight":{"value":19.0,"lower":17.0,"upper":21.0,"unit":"kN/m3"},"permeability":{"value":0.000001,"lower":0.0000001,"upper":0.00001,"unit":"m/s"}}', '[{"id":"mc-01","kind":"mohr-coulomb","drainage":"drained","parameters":{"frictionAngleDeg":{"value":30,"lower":27,"upper":33,"unit":"deg"},"cohesion":{"value":2,"lower":0,"upper":5,"unit":"kPa"},"youngModulus":{"value":12000,"lower":8000,"upper":18000,"unit":"kPa"}}}]', '{"kind":"assessed","method":"engineering interpretation"}', '2026-09-02 14:00:00', '2026-09-02 14:00:00'
+  'mat-002', 'file-001', 'LONDON_CLAY', 'London Clay', 'clay', '{"unitWeight":{"value":20.0,"lower":19.0,"upper":21.0,"unit":"kN/m3"},"saturatedUnitWeight":{"value":20.5,"lower":19.5,"upper":21.5,"unit":"kN/m3"}}', '[{"id":"ut-01","kind":"undrained-tresca","drainage":"undrained","parameters":{"undrainedShearStrength":{"value":75,"lower":60,"upper":90,"unit":"kPa","profile":{"interpolation":"linear","points":[{"depth":5,"value":60,"lower":50,"upper":70},{"depth":20,"value":120,"lower":95,"upper":145}]}}}}]', '{"kind":"assessed","method":"design line","references":["interpretation-001"]}', '2026-09-02 14:00:00', '2026-09-02 14:00:00'
+}
+
+Records ground_layers(id, ground_model_id, layer_order, top_level, material_id, description, generated_from_profile) {
+  'layer-001', 'gm-001', 1, 0.0,  'mat-001', 'Made Ground', false
+  'layer-002', 'gm-001', 2, 3.0, 'mat-002', 'London Clay', false
+  'layer-003', 'gm-002', 1, 0.0,  'mat-001', 'Made Ground', false
+  'layer-004', 'gm-002', 2, 2.0,  'mat-002', 'London Clay', false
+}
