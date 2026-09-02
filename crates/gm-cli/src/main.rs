@@ -1,6 +1,7 @@
 //! `gm` — a self-contained tool for 1D ground models.
 
 mod render;
+mod web;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
@@ -168,6 +169,12 @@ enum Command {
         author: Option<String>,
     },
 
+    /// Serve a local read-only web UI for this file.
+    Ui {
+        #[arg(short, long, default_value_t = 8765)]
+        port: u16,
+    },
+
     /// Manage the named copies this file syncs with.
     Remote {
         #[command(subcommand)]
@@ -268,6 +275,11 @@ fn run() -> Result<()> {
         Command::Pull { remote } => pull(&mut repo, remote.as_deref()),
         Command::Push { remote } => push(&repo, remote.as_deref()),
         Command::Merge { rev, author } => merge(&mut repo, &rev, author.as_deref()),
+        Command::Ui { port } => {
+            // Drop our handle first: the server reopens the file per request.
+            drop(repo);
+            web::serve(&path, port)
+        }
         Command::Remote { action } => remote(&repo, action),
     }
 }

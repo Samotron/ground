@@ -78,9 +78,68 @@ $ duckdb -c "INSTALL sqlite; LOAD sqlite;
 | `gm verify` | Re-hash every object, check every reference |
 | `gm import <json>` / `gm export` | Flat JSON interchange |
 | `gm sql <query>` | Query the materialised tables |
+| `gm ui` | Local read-only web UI. `--port` |
+| `gm clone <src> [dest]` | Copy a file, history and all |
+| `gm pull` / `gm push [remote]` | Sync with another copy |
+| `gm merge <rev>` | Three-way merge of a diverged revision |
+| `gm remote add/list/remove` | Named copies to sync with |
 
 Revisions can be named by abbreviated hash or `HEAD`. The file is found from
 `--file`, `$GM_FILE`, or the single `*.gm` in the working directory.
+
+## Working together
+
+`gm clone` gives each engineer their own copy with the whole history in it. A
+clone keeps the source's file id, because that id names the *project*, not the
+copy — two files with different ids refuse to sync, so a stray pull cannot graft
+one job onto another.
+
+```console
+$ gm clone shared.gm alice.gm
+$ gm clone shared.gm bob.gm
+# Alice re-logs CH-100; Bob independently re-logs CH-125
+$ gm -f alice.gm push
+$ gm -f bob.gm pull
+fetched 1 commits, 2 objects
+histories have diverged:
+  yours   0df04eed5a77
+  theirs  349ea91eeb7d
+  common  2e5d79aa74d2
+
+run `gm merge 349ea91eeb7d` to combine them
+
+$ gm -f bob.gm merge 349ea91eeb7d
+merged 349ea91eeb7d into 0df04eed5a77
+  took theirs  CH-100
+committed 3150a2bc34ec
+```
+
+Different models merge automatically. Two people who both re-logged the *same*
+borehole get a conflict and nothing is written — only one of them can be right,
+and the tool cannot know which.
+
+## The web UI
+
+```console
+$ gm ui
+gm ui: A13 route models
+       http://127.0.0.1:8765/
+       read-only; press Ctrl-C to stop
+```
+
+Every model gets a drawn section — strata to scale, levels and depths on the
+axis, water table where it belongs — because an inverted boundary or a stratum
+that is 50 mm thick is obvious in a picture and easy to miss in a table. A
+material keeps the same colour on every page, so you can recognise London Clay
+along a route without reading the labels.
+
+Also: history, per-commit diffs, which revisions touched a given model, and
+validation results shown against the model they concern. `/api/export`,
+`/api/models` and `/api/validate` return JSON.
+
+It is read-only and binds to loopback only. Editing goes through the CLI, where
+it gets validated and attributed to a named author, and a ground model is not
+something to publish to the office network because someone typed `gm ui`.
 
 ## What the format guarantees
 
@@ -88,8 +147,8 @@ Revisions can be named by abbreviated hash or `HEAD`. The file is found from
 - **Unchanged content is stored once.** Moving one layer boundary in a two-model
   file adds two objects: the changed model and the new manifest.
 - **The same model hashes the same everywhere.** Content identity is a function
-  of the document alone, never of which file it lives in — which is what
-  clone/push/pull will rest on.
+  of the document alone, never of which file it lives in. This is what
+  clone/push/pull rest on.
 - **History order comes from the parent graph**, not timestamps. Two commits in
   the same second, or a skewed clock on another machine, cannot reorder history.
 - **Broken models do not enter history.** `gm commit` refuses on validation
@@ -109,9 +168,20 @@ $ cargo test
 
 ## Status
 
-Working: the format, the object store, history, diff, checkout, validation,
-integrity checking, JSON interchange, and the CLI.
+All of it works: the format, the object store, history, diff, checkout,
+validation, integrity checking, JSON interchange, clone/push/pull with
+three-way merge, the web UI, and the CLI. 49 tests.
 
-Not built yet: `gm ui` (the built-in web UI) and `gm clone` / `push` / `pull`
-(sync between copies). The object store was designed for both — a commit is a
-blob, so sync is "send me the blobs I don't have" — but neither is implemented.
+Known limits, in rough order of how much they'd matter:
+
+- **Sync is filesystem-only.** A remote is a path, so it works over a shared
+  drive or a synced folder but not over the network. The transfer logic is
+  already transport-agnostic — it asks for objects by hash — so an HTTP
+  transport served by `gm ui` is the obvious next step.
+- **Merge conflicts must be resolved by hand**, by checking out one side and
+  re-committing. There is no assisted resolution.
+- **No branches.** `gm_ref` supports them and the merge machinery is
+  branch-shaped, but nothing creates or switches them yet.
+- **Blobs are stored uncompressed.** Canonical JSON compresses well and the
+  column is ready for it; dedup already does most of the work.
+- **`gm ui` is single-threaded.** Fine for one engineer on localhost.

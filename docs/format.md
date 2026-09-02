@@ -226,6 +226,39 @@ with no unit; an unused material; an unrecognised constitutive kind.
 invalid states is worse than no history, because it removes the one thing a
 consumer could rely on.
 
+## Syncing
+
+Two copies of a file may exchange history when they share a `file_id`. That id
+names the project, not the copy: `gm clone` preserves it, and files with
+different ids refuse to sync, which stops one project being grafted onto
+another.
+
+The protocol is one rule: **send the objects the other side does not have.**
+Because a commit is a blob whose hash is the hash of its manifest, walking a
+commit's ancestry and copying missing blobs transfers history, models and
+materials through one path. Objects move as raw bytes, and a receiver rejects
+anything that does not hash to its own name, so corruption cannot propagate.
+
+Divergence is resolved by a three-way merge over documents keyed by
+`(kind, key)`, using the standard rule: a side that did not change from the
+merge base loses to the side that did; both sides changing to the same value is
+agreement; both sides changing to different values is a conflict. Conflicts
+write nothing.
+
+A merge commit records both revisions as parents. History is therefore a DAG,
+and ordering it by `committed_at` would be wrong — see below.
+
+## History ordering
+
+`gm log` orders commits **topologically**: descendants before ancestors, from
+the parent graph. Commit time breaks ties only between commits the graph leaves
+genuinely unordered, such as the two sides of a merge.
+
+Timestamps cannot be the primary ordering. Two commits made in the same second
+would order arbitrarily, and once files sync between machines a skewed clock
+could place a child before its own parent. The parent graph is the only thing
+that actually knows what came first.
+
 ## Identifying a file
 
 - `PRAGMA application_id` is `0x474D444C` (ASCII `GMDL`).

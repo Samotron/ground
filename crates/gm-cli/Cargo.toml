@@ -19,3 +19,4 @@ serde.workspace = true
 serde_json.workspace = true
 time.workspace = true
 rusqlite.workspace = true
+tiny_http.workspace = true

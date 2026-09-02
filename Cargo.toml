@@ -21,3 +21,4 @@ time = { version = "0.3", features = ["formatting", "parsing", "macros", "serde"
 rusqlite = { version = "0.37", features = ["bundled", "serde_json", "functions"] }
 clap = { version = "4", features = ["derive", "env"] }
 tempfile = "3"
+tiny_http = "0.12"
