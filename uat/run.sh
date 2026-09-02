@@ -278,9 +278,13 @@ demo() {
   cat <<EOF
 
 Next:
-  ${BOLD}uat/run.sh ui${RESET}      the web UI, with drawn sections
-  ${BOLD}uat/run.sh shell${RESET}   a shell in the sandbox with gm on PATH
-  ${BOLD}uat/CHECKLIST.md${RESET}   what to sign off, and what to look for
+  ${BOLD}just ui${RESET}       the web UI, with drawn sections
+  ${BOLD}just sandbox${RESET}  a shell in the sandbox, gm on PATH
+  ${BOLD}just gm ...${RESET}   run gm against the sandbox, e.g. just gm show CH-150
+
+  ${BOLD}uat/CHECKLIST.md${RESET}  what to sign off, and what to look for
+
+(Without just: uat/run.sh ui, uat/run.sh shell.)
 
 The sandbox is left in place at uat/workspace.
 EOF

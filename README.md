@@ -166,7 +166,27 @@ $ cargo build --release   # target/release/gm, one static binary
 $ cargo test
 ```
 
+With [just](https://just.systems), `just` on its own lists everything:
+
+| | |
+|---|---|
+| `just release` / `just install` | build, or put `gm` on your PATH |
+| `just check` | the pre-commit gate: lints and tests |
+| `just ci` | everything, including the examples and the walkthrough |
+| `just fix` / `just fmt` | apply what clippy and rustfmt can fix |
+| `just examples` | check every example still imports and validates |
+| `just uat` / `just walk` | the walkthrough, or the same pausing between steps |
+| `just ui` / `just sandbox` | the web UI, or a shell in the demo sandbox |
+| `just gm ...` | run gm against the sandbox, e.g. `just gm show CH-150` |
+
 ## Trying it out
+
+```console
+$ just uat              # or: uat/run.sh
+```
+
+Everything works without `just` too — the recipes are thin wrappers over
+`cargo` and `uat/run.sh`:
 
 ```console
 $ uat/run.sh            # a narrated walkthrough of every scenario

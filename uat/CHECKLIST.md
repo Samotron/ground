@@ -1,6 +1,6 @@
 # UAT checklist
 
-Run `uat/run.sh` and work down this list. Each item says what to look for and
+Run `just uat` and work down this list. Each item says what to look for and
 which scenario in the walkthrough covers it.
 
 The script asserts its own expectations as it goes — including that the things
@@ -10,11 +10,12 @@ means the mechanics work. This checklist is for the judgements a script cannot
 make: whether the output is *right*, and whether it is usable.
 
 ```console
-uat/run.sh          # the full walkthrough
-uat/run.sh --step   # same, pausing between scenarios
-uat/run.sh ui       # the web UI
-uat/run.sh shell    # poke at the sandbox yourself
-uat/run.sh clean    # remove the sandbox
+just uat            # the full walkthrough        (or: uat/run.sh)
+just walk           # same, pausing between steps (or: uat/run.sh --step)
+just ui             # the web UI                  (or: uat/run.sh ui)
+just sandbox        # poke at the sandbox         (or: uat/run.sh shell)
+just gm show CH-150 # run one command against the sandbox
+just clean          # remove build output and the sandbox
 ```
 
 The sandbox is `uat/workspace/`, rebuilt on each run and gitignored. Nothing
@@ -105,7 +106,7 @@ To satisfy yourself that verification is real rather than decorative, corrupt a
 stored object by hand and check that it is caught:
 
 ```console
-uat/run.sh shell
+just sandbox
 sqlite3 a13.gm "UPDATE gm_blob SET content = '{}' WHERE hash = (
                   SELECT hash FROM gm_blob
                    WHERE hash NOT IN (SELECT hash FROM gm_commit) LIMIT 1);"
@@ -127,7 +128,7 @@ any SQLite browser. The tables to look at are `ground_models`, `ground_layers`,
 
 ## 7. The web UI
 
-`uat/run.sh ui`, then <http://127.0.0.1:8765/>.
+`just ui`, then <http://127.0.0.1:8765/>.
 
 | # | Check | Where | ✓ |
 |---|---|---|---|
