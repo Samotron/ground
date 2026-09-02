@@ -3,3 +3,4 @@
 *.gm-journal
 *.gm-wal
 *.gm-shm
+/uat/workspace/

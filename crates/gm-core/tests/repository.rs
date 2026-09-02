@@ -307,3 +307,40 @@ fn writing_a_layer_with_an_undefined_material_is_refused() {
         "the message should name the material, got: {err}"
     );
 }
+
+#[test]
+fn a_text_typed_object_is_diagnosed_as_corrupt_not_as_a_type_error() {
+    // SQLite types values, not columns, so a client that wrote a document as
+    // TEXT rather than BLOB leaves a readable row. Because any SQLite client is
+    // a supported editor, that is a realistic way for a file to arrive damaged,
+    // and it has to be reported as a hash mismatch rather than as an opaque
+    // column-type error.
+    let TestRepo { _dir, mut repo } = common::temp_repo();
+    populated(&mut repo);
+    repo.commit(AUTHOR, "baseline").expect("commit");
+
+    let hash: String = repo
+        .connection()
+        .query_row(
+            "SELECT hash FROM gm_blob WHERE hash NOT IN (SELECT hash FROM gm_commit) LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .expect("a document blob");
+    repo.connection()
+        .execute(
+            "UPDATE gm_blob SET content = '{}' WHERE hash = ?1",
+            rusqlite::params![hash],
+        )
+        .expect("overwrite with TEXT");
+
+    let problems = repo
+        .verify()
+        .expect("verify must not fail with a type error");
+    assert_eq!(problems.len(), 1, "got {problems:?}");
+    assert!(
+        problems[0].contains("hashes to"),
+        "expected a hash mismatch, got: {}",
+        problems[0]
+    );
+}

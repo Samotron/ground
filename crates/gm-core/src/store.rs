@@ -271,7 +271,7 @@ impl Repository {
             .query_row(
                 "SELECT content FROM gm_blob WHERE hash = ?1",
                 params![hash],
-                |r| r.get(0),
+                |r| stored_bytes(r.get_ref(0)?),
             )
             .optional()?
             .ok_or_else(|| Error::MissingObject(hash.to_string()))
@@ -1037,7 +1037,7 @@ impl Repository {
 
         let mut stmt = self.conn.prepare("SELECT hash, content FROM gm_blob")?;
         let rows = stmt.query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?))
+            Ok((r.get::<_, String>(0)?, stored_bytes(r.get_ref(1)?)?))
         })?;
         for row in rows {
             let (hash, content) = row?;
@@ -1131,5 +1131,27 @@ fn to_opt_json(value: &Option<Value>) -> Result<Option<String>> {
     match value {
         Some(v) => Ok(Some(serde_json::to_string(v)?)),
         None => Ok(None),
+    }
+}
+
+/// Read a stored object's bytes, accepting either storage class.
+///
+/// `gm_blob.content` is declared `BLOB`, but SQLite types values, not columns:
+/// a client that wrote the canonical JSON as TEXT produces a perfectly valid
+/// row that a strict `Vec<u8>` read rejects with a type error. Since the whole
+/// premise is that this file can be edited with any SQLite client, that is a
+/// realistic way for a file to arrive damaged — and it must surface as "this
+/// object does not match its hash", diagnosed by [`Repository::verify`], rather
+/// than as an opaque column-type error that tells the reader nothing.
+fn stored_bytes(value: rusqlite::types::ValueRef<'_>) -> rusqlite::Result<Vec<u8>> {
+    use rusqlite::types::ValueRef;
+    match value {
+        ValueRef::Blob(bytes) => Ok(bytes.to_vec()),
+        ValueRef::Text(bytes) => Ok(bytes.to_vec()),
+        other => Err(rusqlite::Error::InvalidColumnType(
+            0,
+            "content".to_string(),
+            other.data_type(),
+        )),
     }
 }

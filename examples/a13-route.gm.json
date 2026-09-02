@@ -1,0 +1,487 @@
+{
+  "type": "gm.file/1",
+  "schemaVersion": "0.1.0",
+  "file": {
+    "name": "A13 corridor ground models",
+    "description": "Six chainages along the A13 corridor. Made Ground over a buried alluvial channel, terrace gravel and London Clay.",
+    "crs": "EPSG:27700",
+    "verticalDatum": "Ordnance Datum Newlyn"
+  },
+  "materials": [
+    {
+      "materialKey": "MADE_GROUND",
+      "name": "Made Ground",
+      "soilClass": "anthropogenic",
+      "description": "Variable fill: brick, ash and clinker in a sandy clay matrix.",
+      "properties": {
+        "unitWeight": {
+          "value": 19.0,
+          "lower": 17.0,
+          "upper": 21.0,
+          "unit": "kN/m3"
+        },
+        "permeability": {
+          "value": 1e-06,
+          "lower": 1e-07,
+          "upper": 1e-05,
+          "unit": "m/s"
+        }
+      },
+      "constitutiveModels": [
+        {
+          "id": "mc-01",
+          "kind": "mohr-coulomb",
+          "drainage": "drained",
+          "parameters": {
+            "frictionAngleDeg": {
+              "value": 30,
+              "lower": 27,
+              "upper": 33,
+              "unit": "deg"
+            },
+            "cohesion": {
+              "value": 2,
+              "lower": 0,
+              "upper": 5,
+              "unit": "kPa"
+            },
+            "youngModulus": {
+              "value": 12000,
+              "lower": 8000,
+              "upper": 18000,
+              "unit": "kPa"
+            }
+          }
+        }
+      ],
+      "provenance": {
+        "kind": "assumed",
+        "method": "published values for urban fill"
+      }
+    },
+    {
+      "materialKey": "ALLUVIUM",
+      "name": "Alluvium",
+      "soilClass": "clay",
+      "description": "Soft grey silty clay with organic partings. Buried channel deposit.",
+      "properties": {
+        "unitWeight": {
+          "value": 16.5,
+          "lower": 15.0,
+          "upper": 18.0,
+          "unit": "kN/m3"
+        },
+        "permeability": {
+          "value": 1e-08,
+          "lower": 1e-09,
+          "upper": 1e-07,
+          "unit": "m/s"
+        }
+      },
+      "constitutiveModels": [
+        {
+          "id": "ut-01",
+          "kind": "undrained-tresca",
+          "drainage": "undrained",
+          "parameters": {
+            "undrainedShearStrength": {
+              "value": 25,
+              "lower": 15,
+              "upper": 35,
+              "unit": "kPa",
+              "profile": {
+                "interpolation": "linear",
+                "datum": "layer-top",
+                "points": [
+                  {
+                    "depth": 0.0,
+                    "value": 15,
+                    "lower": 10,
+                    "upper": 22
+                  },
+                  {
+                    "depth": 5.0,
+                    "value": 35,
+                    "lower": 24,
+                    "upper": 46
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "provenance": {
+        "kind": "measured",
+        "method": "hand shear vane, BH103-BH118"
+      }
+    },
+    {
+      "materialKey": "TERRACE_GRAVEL",
+      "name": "River Terrace Deposits",
+      "soilClass": "granular",
+      "description": "Dense sandy gravel, flint dominant.",
+      "properties": {
+        "unitWeight": {
+          "value": 20.0,
+          "lower": 19.0,
+          "upper": 21.0,
+          "unit": "kN/m3"
+        },
+        "permeability": {
+          "value": 0.0005,
+          "lower": 0.0001,
+          "upper": 0.001,
+          "unit": "m/s"
+        }
+      },
+      "constitutiveModels": [
+        {
+          "id": "mc-01",
+          "kind": "mohr-coulomb",
+          "drainage": "drained",
+          "parameters": {
+            "frictionAngleDeg": {
+              "value": 36,
+              "lower": 33,
+              "upper": 40,
+              "unit": "deg"
+            },
+            "cohesion": {
+              "value": 0,
+              "lower": 0,
+              "upper": 0,
+              "unit": "kPa"
+            },
+            "youngModulus": {
+              "value": 45000,
+              "lower": 30000,
+              "upper": 60000,
+              "unit": "kPa"
+            }
+          }
+        }
+      ],
+      "provenance": {
+        "kind": "assessed",
+        "method": "SPT correlation, 42 tests"
+      }
+    },
+    {
+      "materialKey": "LONDON_CLAY",
+      "name": "London Clay Formation",
+      "soilClass": "clay",
+      "description": "Stiff fissured grey-brown silty clay.",
+      "properties": {
+        "unitWeight": {
+          "value": 20.0,
+          "lower": 19.0,
+          "upper": 21.0,
+          "unit": "kN/m3"
+        },
+        "saturatedUnitWeight": {
+          "value": 20.5,
+          "lower": 19.5,
+          "upper": 21.5,
+          "unit": "kN/m3"
+        },
+        "permeability": {
+          "value": 1e-10,
+          "lower": 1e-11,
+          "upper": 1e-09,
+          "unit": "m/s"
+        }
+      },
+      "constitutiveModels": [
+        {
+          "id": "ut-01",
+          "kind": "undrained-tresca",
+          "drainage": "undrained",
+          "parameters": {
+            "undrainedShearStrength": {
+              "value": 90,
+              "lower": 70,
+              "upper": 115,
+              "unit": "kPa",
+              "profile": {
+                "interpolation": "linear",
+                "datum": "layer-top",
+                "points": [
+                  {
+                    "depth": 0.0,
+                    "value": 60,
+                    "lower": 50,
+                    "upper": 72
+                  },
+                  {
+                    "depth": 15.0,
+                    "value": 145,
+                    "lower": 115,
+                    "upper": 175
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "mc-01",
+          "kind": "mohr-coulomb",
+          "drainage": "drained",
+          "parameters": {
+            "frictionAngleDeg": {
+              "value": 24,
+              "lower": 22,
+              "upper": 26,
+              "unit": "deg"
+            },
+            "cohesion": {
+              "value": 5,
+              "lower": 0,
+              "upper": 10,
+              "unit": "kPa"
+            }
+          }
+        }
+      ],
+      "provenance": {
+        "kind": "assessed",
+        "method": "design line, triaxial + SPT"
+      }
+    }
+  ],
+  "models": [
+    {
+      "modelKey": "CH-000",
+      "name": "Chainage 0",
+      "surfaceLevel": 8.2,
+      "baseLevel": -16.8,
+      "x": 384000.0,
+      "y": 397200.0,
+      "groundwater": {
+        "kind": "hydrostatic",
+        "depth": 2.4
+      },
+      "settings": {
+        "allowGaps": false,
+        "profileSublayerThickness": 0.5
+      },
+      "layers": [
+        {
+          "topLevel": 8.2,
+          "materialKey": "MADE_GROUND"
+        },
+        {
+          "topLevel": 6.8,
+          "materialKey": "TERRACE_GRAVEL"
+        },
+        {
+          "topLevel": 2.6,
+          "materialKey": "LONDON_CLAY"
+        }
+      ],
+      "metadata": {
+        "chainage": 0,
+        "boreholes": [
+          "BH100"
+        ]
+      }
+    },
+    {
+      "modelKey": "CH-050",
+      "name": "Chainage 50",
+      "surfaceLevel": 7.6,
+      "baseLevel": -17.4,
+      "x": 384050.0,
+      "y": 397212.0,
+      "groundwater": {
+        "kind": "hydrostatic",
+        "depth": 1.8
+      },
+      "settings": {
+        "allowGaps": false,
+        "profileSublayerThickness": 0.5
+      },
+      "layers": [
+        {
+          "topLevel": 7.6,
+          "materialKey": "MADE_GROUND"
+        },
+        {
+          "topLevel": 5.8,
+          "materialKey": "ALLUVIUM"
+        },
+        {
+          "topLevel": 4.3,
+          "materialKey": "TERRACE_GRAVEL"
+        },
+        {
+          "topLevel": 0.5,
+          "materialKey": "LONDON_CLAY"
+        }
+      ],
+      "metadata": {
+        "chainage": 50,
+        "boreholes": [
+          "BH103"
+        ]
+      }
+    },
+    {
+      "modelKey": "CH-100",
+      "name": "Chainage 100",
+      "surfaceLevel": 6.9,
+      "baseLevel": -18.1,
+      "x": 384100.0,
+      "y": 397224.0,
+      "groundwater": {
+        "kind": "hydrostatic",
+        "depth": 1.8
+      },
+      "settings": {
+        "allowGaps": false,
+        "profileSublayerThickness": 0.5
+      },
+      "layers": [
+        {
+          "topLevel": 6.9,
+          "materialKey": "MADE_GROUND"
+        },
+        {
+          "topLevel": 4.8,
+          "materialKey": "ALLUVIUM"
+        },
+        {
+          "topLevel": 1.4,
+          "materialKey": "TERRACE_GRAVEL"
+        },
+        {
+          "topLevel": -1.7,
+          "materialKey": "LONDON_CLAY"
+        }
+      ],
+      "metadata": {
+        "chainage": 100,
+        "boreholes": [
+          "BH106"
+        ]
+      }
+    },
+    {
+      "modelKey": "CH-150",
+      "name": "Chainage 150",
+      "surfaceLevel": 6.2,
+      "baseLevel": -18.8,
+      "x": 384150.0,
+      "y": 397236.0,
+      "groundwater": {
+        "kind": "hydrostatic",
+        "depth": 1.8
+      },
+      "settings": {
+        "allowGaps": false,
+        "profileSublayerThickness": 0.5
+      },
+      "layers": [
+        {
+          "topLevel": 6.2,
+          "materialKey": "MADE_GROUND"
+        },
+        {
+          "topLevel": 3.8,
+          "materialKey": "ALLUVIUM"
+        },
+        {
+          "topLevel": -0.8,
+          "materialKey": "TERRACE_GRAVEL"
+        },
+        {
+          "topLevel": -3.4,
+          "materialKey": "LONDON_CLAY"
+        }
+      ],
+      "metadata": {
+        "chainage": 150,
+        "boreholes": [
+          "BH109"
+        ]
+      }
+    },
+    {
+      "modelKey": "CH-200",
+      "name": "Chainage 200",
+      "surfaceLevel": 6.05,
+      "baseLevel": -18.95,
+      "x": 384200.0,
+      "y": 397248.0,
+      "groundwater": {
+        "kind": "hydrostatic",
+        "depth": 1.8
+      },
+      "settings": {
+        "allowGaps": false,
+        "profileSublayerThickness": 0.5
+      },
+      "layers": [
+        {
+          "topLevel": 6.05,
+          "materialKey": "MADE_GROUND"
+        },
+        {
+          "topLevel": 4.15,
+          "materialKey": "ALLUVIUM"
+        },
+        {
+          "topLevel": 1.35,
+          "materialKey": "TERRACE_GRAVEL"
+        },
+        {
+          "topLevel": -2.05,
+          "materialKey": "LONDON_CLAY"
+        }
+      ],
+      "metadata": {
+        "chainage": 200,
+        "boreholes": [
+          "BH112"
+        ]
+      }
+    },
+    {
+      "modelKey": "CH-250",
+      "name": "Chainage 250",
+      "surfaceLevel": 6.4,
+      "baseLevel": -18.6,
+      "x": 384250.0,
+      "y": 397260.0,
+      "groundwater": {
+        "kind": "hydrostatic",
+        "depth": 2.4
+      },
+      "settings": {
+        "allowGaps": false,
+        "profileSublayerThickness": 0.5
+      },
+      "layers": [
+        {
+          "topLevel": 6.4,
+          "materialKey": "MADE_GROUND"
+        },
+        {
+          "topLevel": 4.9,
+          "materialKey": "TERRACE_GRAVEL"
+        },
+        {
+          "topLevel": 0.5,
+          "materialKey": "LONDON_CLAY"
+        }
+      ],
+      "metadata": {
+        "chainage": 250,
+        "boreholes": [
+          "BH115"
+        ]
+      }
+    }
+  ]
+}

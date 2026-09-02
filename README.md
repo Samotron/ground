@@ -166,6 +166,31 @@ $ cargo build --release   # target/release/gm, one static binary
 $ cargo test
 ```
 
+## Trying it out
+
+```console
+$ uat/run.sh            # a narrated walkthrough of every scenario
+$ uat/run.sh --step     # the same, pausing between scenarios
+$ uat/run.sh ui         # seed a file and open the web UI
+$ uat/run.sh shell      # a sandbox shell with gm on PATH and $GM_FILE set
+$ uat/run.sh clean      # remove the sandbox
+```
+
+It builds a six-chainage A13 corridor route — Made Ground over a buried
+alluvial channel, terrace gravel and London Clay — then walks through creating
+a file, editing it with `sqlite3`, history and time travel, validation refusing
+a broken commit, two engineers diverging and merging, a conflict being refused,
+integrity checking, and DuckDB reading the same file.
+
+Everything happens in `uat/workspace/`, which is gitignored and rebuilt on each
+run. The script asserts its own expectations — including that the things which
+*should* be refused still are — and exits non-zero if anything behaves
+differently, so it doubles as an end-to-end smoke test.
+
+[`uat/CHECKLIST.md`](uat/CHECKLIST.md) is the acceptance checklist: what to look
+for in each scenario, and the design decisions worth settling before they get
+expensive to change.
+
 ## Status
 
 All of it works: the format, the object store, history, diff, checkout,
