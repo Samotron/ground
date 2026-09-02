@@ -6,6 +6,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 use gm_core::exchange::{Exchange, merge_into};
 use gm_core::store::{Repository, State, now_rfc3339, short_hash};
+use gm_core::sync;
 use gm_core::validate;
 use gm_core::{FileMetadata, schema};
 use std::path::{Path, PathBuf};
@@ -137,6 +138,51 @@ enum Command {
 
     /// Run a read-only SQL query against the materialised tables.
     Sql { query: String },
+
+    /// Copy a ground-model file, history and all.
+    Clone {
+        /// Path of the file to copy.
+        source: PathBuf,
+        /// Path to create. Defaults to the source's file name here.
+        dest: Option<PathBuf>,
+        #[arg(long, env = "GM_AUTHOR")]
+        author: Option<String>,
+    },
+
+    /// Fetch from another copy and fast-forward if possible.
+    Pull {
+        /// A remote name, or a path to another ground-model file.
+        remote: Option<String>,
+    },
+
+    /// Send local commits to another copy.
+    Push {
+        /// A remote name, or a path to another ground-model file.
+        remote: Option<String>,
+    },
+
+    /// Merge a diverged revision into the current one.
+    Merge {
+        rev: String,
+        #[arg(long, env = "GM_AUTHOR")]
+        author: Option<String>,
+    },
+
+    /// Manage the named copies this file syncs with.
+    Remote {
+        #[command(subcommand)]
+        action: RemoteAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum RemoteAction {
+    /// List the configured remotes.
+    List,
+    /// Add or update one.
+    Add { name: String, url: String },
+    /// Forget one.
+    Remove { name: String },
 }
 
 fn main() {
@@ -165,6 +211,16 @@ fn run() -> Result<()> {
             datum.as_deref(),
             author.as_deref(),
         );
+    }
+
+    // Like `init`, `clone` creates its target rather than opening one.
+    if let Command::Clone {
+        source,
+        dest,
+        author,
+    } = &cli.command
+    {
+        return clone(source, dest.as_deref(), author.as_deref());
     }
 
     let path = resolve_file(cli.file.as_deref())?;
@@ -208,6 +264,11 @@ fn run() -> Result<()> {
         Command::Import { path, replace } => import(&mut repo, &path, replace),
         Command::Export { output, rev } => export(&repo, output.as_deref(), rev.as_deref()),
         Command::Sql { query } => sql(&repo, &query),
+        Command::Clone { .. } => unreachable!("handled above"),
+        Command::Pull { remote } => pull(&mut repo, remote.as_deref()),
+        Command::Push { remote } => push(&repo, remote.as_deref()),
+        Command::Merge { rev, author } => merge(&mut repo, &rev, author.as_deref()),
+        Command::Remote { action } => remote(&repo, action),
     }
 }
 
@@ -515,6 +576,186 @@ fn sql(repo: &Repository, query: &str) -> Result<()> {
             })
             .collect();
         println!("{}", cells.join("\t"));
+    }
+    Ok(())
+}
+
+// -- sync -------------------------------------------------------------------
+
+/// Resolve a remote argument to a path. A bare name is looked up in the file's
+/// remote list; anything else is taken as a path.
+fn remote_path(repo: &Repository, arg: Option<&str>) -> Result<PathBuf> {
+    let name = arg.unwrap_or("origin");
+    if let Some(url) = repo.remote_url(name)? {
+        return Ok(PathBuf::from(url));
+    }
+    match arg {
+        Some(arg) => {
+            let path = PathBuf::from(arg);
+            if path.exists() {
+                Ok(path)
+            } else {
+                bail!("no remote called '{arg}', and no file at that path")
+            }
+        }
+        None => bail!("no remote given and none called 'origin' is configured"),
+    }
+}
+
+fn clone(source: &Path, dest: Option<&Path>, author: Option<&str>) -> Result<()> {
+    let author = author
+        .map(str::to_string)
+        .or_else(|| std::env::var("GM_AUTHOR").ok())
+        .ok_or_else(|| anyhow!("no author; pass --author or set GM_AUTHOR"))?;
+
+    let dest = match dest {
+        Some(dest) => dest.to_path_buf(),
+        None => PathBuf::from(
+            source
+                .file_name()
+                .ok_or_else(|| anyhow!("{} has no file name", source.display()))?,
+        ),
+    };
+
+    let src = Repository::open(source).with_context(|| format!("opening {}", source.display()))?;
+    let cloned = sync::clone_to(&src, &dest, &author)?;
+
+    // Point the clone back at where it came from, so a bare `gm pull` works.
+    let origin = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+    cloned.set_remote("origin", &origin.to_string_lossy())?;
+
+    let (blobs, commits, _) = cloned.object_stats()?;
+    println!(
+        "cloned {} into {} ({commits} commits, {blobs} objects)",
+        source.display(),
+        dest.display()
+    );
+    Ok(())
+}
+
+fn pull(repo: &mut Repository, remote_arg: Option<&str>) -> Result<()> {
+    let path = remote_path(repo, remote_arg)?;
+    let remote = Repository::open(&path).with_context(|| format!("opening {}", path.display()))?;
+
+    match sync::pull(repo, &remote)? {
+        sync::PullOutcome::UpToDate => println!("already up to date"),
+        sync::PullOutcome::FastForward { to, transferred } => {
+            println!(
+                "fast-forwarded to {} ({} commits, {} objects)",
+                short_hash(&to),
+                transferred.commits,
+                transferred.objects
+            );
+        }
+        sync::PullOutcome::Diverged {
+            ours,
+            theirs,
+            base,
+            transferred,
+        } => {
+            println!(
+                "fetched {} commits, {} objects",
+                transferred.commits, transferred.objects
+            );
+            println!("histories have diverged:");
+            println!("  yours   {}", short_hash(&ours));
+            println!("  theirs  {}", short_hash(&theirs));
+            match base {
+                Some(base) => println!("  common  {}", short_hash(&base)),
+                None => println!("  common  (none: unrelated histories)"),
+            }
+            println!("\nrun `gm merge {}` to combine them", short_hash(&theirs));
+        }
+    }
+    Ok(())
+}
+
+fn push(repo: &Repository, remote_arg: Option<&str>) -> Result<()> {
+    let path = remote_path(repo, remote_arg)?;
+    let mut remote =
+        Repository::open(&path).with_context(|| format!("opening {}", path.display()))?;
+
+    match sync::push(repo, &mut remote)? {
+        sync::PushOutcome::UpToDate => println!("already up to date"),
+        sync::PushOutcome::FastForward { to, transferred } => {
+            println!(
+                "pushed to {}: now at {} ({} commits, {} objects)",
+                path.display(),
+                short_hash(&to),
+                transferred.commits,
+                transferred.objects
+            );
+        }
+    }
+    Ok(())
+}
+
+fn merge(repo: &mut Repository, rev: &str, author: Option<&str>) -> Result<()> {
+    let author = resolve_author(repo, author)?;
+    let theirs = repo.resolve(rev)?;
+    let ours = repo
+        .head()?
+        .ok_or_else(|| anyhow!("this file has no commits to merge into"))?;
+
+    match sync::merge(repo, &ours, &theirs, &author)? {
+        sync::MergeOutcome::AlreadyUpToDate => {
+            println!(
+                "{} is already in this history; nothing to merge",
+                short_hash(&theirs)
+            );
+            Ok(())
+        }
+        sync::MergeOutcome::FastForward { to } => {
+            println!("fast-forwarded to {}", short_hash(&to));
+            Ok(())
+        }
+        sync::MergeOutcome::Merged { hash, result } => {
+            println!("merged {} into {}", short_hash(&theirs), short_hash(&ours));
+            for key in &result.took_theirs {
+                println!("  took theirs  {key}");
+            }
+            for key in &result.kept_ours {
+                println!("  kept yours   {key}");
+            }
+            println!("committed {}", short_hash(&hash));
+            Ok(())
+        }
+        sync::MergeOutcome::Conflicts(result) => {
+            println!("conflicts in {} document(s):", result.conflicts.len());
+            for conflict in &result.conflicts {
+                println!("  {:<14} {}", conflict.kind, conflict.key);
+            }
+            println!(
+                "\nBoth sides changed these. Nothing has been written; pick a version \
+                 with `gm checkout`, or edit and commit the one you want to keep."
+            );
+            bail!("merge stopped on conflicts")
+        }
+    }
+}
+
+fn remote(repo: &Repository, action: RemoteAction) -> Result<()> {
+    match action {
+        RemoteAction::List => {
+            let remotes = repo.remotes()?;
+            if remotes.is_empty() {
+                println!("no remotes");
+            }
+            for (name, url) in remotes {
+                println!("{name:<12} {url}");
+            }
+        }
+        RemoteAction::Add { name, url } => {
+            repo.set_remote(&name, &url)?;
+            println!("remote '{name}' -> {url}");
+        }
+        RemoteAction::Remove { name } => {
+            if repo.remove_remote(&name)? {
+                println!("removed remote '{name}'");
+            } else {
+                bail!("no remote called '{name}'");
+            }
+        }
     }
     Ok(())
 }

@@ -20,6 +20,7 @@ pub mod exchange;
 pub mod model;
 pub mod schema;
 pub mod store;
+pub mod sync;
 pub mod validate;
 
 pub use error::{Error, Result};

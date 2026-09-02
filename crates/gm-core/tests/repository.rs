@@ -5,127 +5,19 @@
 //! twice, that history is reachable, and that a file written by this build can
 //! be read back by it byte for byte.
 
+mod common;
+
+use common::{AUTHOR, TestRepo, populated};
 use gm_core::exchange::Exchange;
-use gm_core::model::{
-    Bounded, ConstitutiveModel, Drainage, GroundModel, Groundwater, Layer, Material,
-};
-use gm_core::store::{ChangeKind, Repository, State};
+use gm_core::store::{ChangeKind, Repository};
 use gm_core::validate;
 use gm_core::{FileMetadata, canon};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use tempfile::TempDir;
-
-const AUTHOR: &str = "test@example.com";
-
-fn temp_repo() -> (TempDir, Repository) {
-    let dir = TempDir::new().expect("temp dir");
-    let path = dir.path().join("test.gm");
-    let mut meta = FileMetadata::new("Test file");
-    meta.crs = Some("EPSG:27700".into());
-    meta.vertical_datum = Some("Ordnance Datum Newlyn".into());
-    let repo = Repository::create(&path, meta, AUTHOR).expect("create");
-    (dir, repo)
-}
-
-fn made_ground() -> Material {
-    Material {
-        material_key: "MADE_GROUND".into(),
-        name: Some("Made Ground".into()),
-        description: None,
-        soil_class: Some("anthropogenic".into()),
-        properties: BTreeMap::from([(
-            "unitWeight".to_string(),
-            Bounded::ranged(19.0, 17.0, 21.0, "kN/m3"),
-        )]),
-        constitutive_models: vec![ConstitutiveModel {
-            id: "mc-01".into(),
-            kind: "mohr-coulomb".into(),
-            drainage: Some(Drainage::Drained),
-            parameters: BTreeMap::from([
-                (
-                    "frictionAngleDeg".to_string(),
-                    Bounded::ranged(30.0, 27.0, 33.0, "deg"),
-                ),
-                ("cohesion".to_string(), Bounded::scalar(2.0, "kPa")),
-            ]),
-            metadata: None,
-        }],
-        provenance: None,
-        metadata: None,
-    }
-}
-
-fn london_clay() -> Material {
-    Material {
-        material_key: "LONDON_CLAY".into(),
-        name: Some("London Clay".into()),
-        description: None,
-        soil_class: Some("clay".into()),
-        properties: BTreeMap::from([(
-            "unitWeight".to_string(),
-            Bounded::ranged(20.0, 19.0, 21.0, "kN/m3"),
-        )]),
-        constitutive_models: vec![ConstitutiveModel {
-            id: "ut-01".into(),
-            kind: "undrained-tresca".into(),
-            drainage: Some(Drainage::Undrained),
-            parameters: BTreeMap::from([(
-                "undrainedShearStrength".to_string(),
-                Bounded::ranged(75.0, 60.0, 90.0, "kPa"),
-            )]),
-            metadata: None,
-        }],
-        provenance: None,
-        metadata: None,
-    }
-}
-
-fn model(key: &str, surface: f64, clay_top: f64) -> GroundModel {
-    let mut m = GroundModel::new(key);
-    m.name = Some(format!("Model {key}"));
-    m.surface_level = Some(surface);
-    m.base_level = Some(surface - 20.0);
-    m.x = Some(384100.0);
-    m.y = Some(397200.0);
-    m.groundwater = Groundwater::Hydrostatic { depth: 2.5 };
-    m.layers = vec![
-        Layer {
-            top_level: surface,
-            material_key: "MADE_GROUND".into(),
-            description: None,
-            source: None,
-            generated_from_profile: false,
-            metadata: None,
-        },
-        Layer {
-            top_level: clay_top,
-            material_key: "LONDON_CLAY".into(),
-            description: None,
-            source: None,
-            generated_from_profile: false,
-            metadata: None,
-        },
-    ];
-    m
-}
-
-fn populated(repo: &mut Repository) -> State {
-    let mut state = repo.working().expect("working");
-    state.materials.insert("MADE_GROUND".into(), made_ground());
-    state.materials.insert("LONDON_CLAY".into(), london_clay());
-    state
-        .models
-        .insert("CH-100".into(), model("CH-100", 82.5, 79.5));
-    state
-        .models
-        .insert("CH-125".into(), model("CH-125", 81.9, 79.9));
-    repo.write_working(&state).expect("write working");
-    state
-}
 
 #[test]
 fn a_committed_revision_reads_back_exactly() {
-    let (_dir, mut repo) = temp_repo();
+    let TestRepo { _dir, mut repo } = common::temp_repo();
     let written = populated(&mut repo);
     let hash = repo
         .commit(AUTHOR, "initial models")
@@ -140,7 +32,7 @@ fn a_committed_revision_reads_back_exactly() {
 
 #[test]
 fn committing_twice_with_no_changes_does_nothing() {
-    let (_dir, mut repo) = temp_repo();
+    let TestRepo { _dir, mut repo } = common::temp_repo();
     populated(&mut repo);
     repo.commit(AUTHOR, "first")
         .expect("commit")
@@ -154,7 +46,7 @@ fn committing_twice_with_no_changes_does_nothing() {
 
 #[test]
 fn unchanged_documents_are_stored_once_across_revisions() {
-    let (_dir, mut repo) = temp_repo();
+    let TestRepo { _dir, mut repo } = common::temp_repo();
     populated(&mut repo);
     repo.commit(AUTHOR, "first").expect("commit");
     let (blobs_before, _, _) = repo.object_stats().expect("stats");
@@ -178,7 +70,7 @@ fn unchanged_documents_are_stored_once_across_revisions() {
 
 #[test]
 fn status_reports_what_changed_in_the_working_tree() {
-    let (_dir, mut repo) = temp_repo();
+    let TestRepo { _dir, mut repo } = common::temp_repo();
     populated(&mut repo);
     repo.commit(AUTHOR, "first").expect("commit");
     assert!(repo.status().expect("status").is_empty());
@@ -203,7 +95,7 @@ fn status_reports_what_changed_in_the_working_tree() {
 
 #[test]
 fn checkout_restores_an_earlier_revision() {
-    let (_dir, mut repo) = temp_repo();
+    let TestRepo { _dir, mut repo } = common::temp_repo();
     populated(&mut repo);
     let first = repo
         .commit(AUTHOR, "first")
@@ -223,7 +115,7 @@ fn checkout_restores_an_earlier_revision() {
 
 #[test]
 fn checkout_refuses_to_discard_uncommitted_work() {
-    let (_dir, mut repo) = temp_repo();
+    let TestRepo { _dir, mut repo } = common::temp_repo();
     populated(&mut repo);
     let first = repo
         .commit(AUTHOR, "first")
@@ -246,7 +138,7 @@ fn checkout_refuses_to_discard_uncommitted_work() {
 
 #[test]
 fn history_is_reachable_and_ordered() {
-    let (_dir, mut repo) = temp_repo();
+    let TestRepo { _dir, mut repo } = common::temp_repo();
     populated(&mut repo);
     repo.commit(AUTHOR, "first").expect("commit");
 
@@ -299,7 +191,7 @@ fn opening_something_that_is_not_a_ground_model_file_fails_clearly() {
 
 #[test]
 fn the_exchange_document_round_trips_without_loss() {
-    let (_dir, mut repo) = temp_repo();
+    let TestRepo { _dir, mut repo } = common::temp_repo();
     let state = populated(&mut repo);
     repo.commit(AUTHOR, "first").expect("commit");
 
@@ -312,7 +204,7 @@ fn the_exchange_document_round_trips_without_loss() {
 
 #[test]
 fn exported_json_is_byte_stable() {
-    let (_dir, mut repo) = temp_repo();
+    let TestRepo { _dir, mut repo } = common::temp_repo();
     let state = populated(&mut repo);
     let a = Exchange::from_state(&state, None)
         .to_json_pretty()
@@ -330,8 +222,14 @@ fn exported_json_is_byte_stable() {
 fn the_same_model_hashes_the_same_in_two_separate_files() {
     // This is the property clone/push/pull will rest on: content identity is a
     // function of the document alone, never of which file it lives in.
-    let (_d1, mut a) = temp_repo();
-    let (_d2, mut b) = temp_repo();
+    let TestRepo {
+        _dir: _d1,
+        repo: mut a,
+    } = common::temp_repo();
+    let TestRepo {
+        _dir: _d2,
+        repo: mut b,
+    } = common::temp_repo();
     populated(&mut a);
     populated(&mut b);
 
@@ -345,7 +243,7 @@ fn the_same_model_hashes_the_same_in_two_separate_files() {
 
 #[test]
 fn validation_accepts_a_sound_model_and_rejects_an_inverted_one() {
-    let (_dir, mut repo) = temp_repo();
+    let TestRepo { _dir, mut repo } = common::temp_repo();
     let mut state = populated(&mut repo);
     let issues = validate::validate_state(&state);
     let (errors, _) = validate::count(&issues);
@@ -367,7 +265,7 @@ fn validation_accepts_a_sound_model_and_rejects_an_inverted_one() {
 
 #[test]
 fn a_layer_referencing_an_unknown_material_is_an_error() {
-    let (_dir, mut repo) = temp_repo();
+    let TestRepo { _dir, mut repo } = common::temp_repo();
     let mut state = populated(&mut repo);
     state.models.get_mut("CH-100").expect("CH-100").layers[1].material_key = "THAMES_GRAVEL".into();
 
@@ -383,7 +281,7 @@ fn a_layer_referencing_an_unknown_material_is_an_error() {
 
 #[test]
 fn a_base_level_above_the_deepest_layer_is_an_error() {
-    let (_dir, mut repo) = temp_repo();
+    let TestRepo { _dir, mut repo } = common::temp_repo();
     let mut state = populated(&mut repo);
     // Deepest layer top is 79.5; a base of 80.0 would be above it.
     state.models.get_mut("CH-100").expect("CH-100").base_level = Some(80.0);
@@ -399,7 +297,7 @@ fn a_base_level_above_the_deepest_layer_is_an_error() {
 
 #[test]
 fn writing_a_layer_with_an_undefined_material_is_refused() {
-    let (_dir, mut repo) = temp_repo();
+    let TestRepo { _dir, mut repo } = common::temp_repo();
     let mut state = populated(&mut repo);
     state.models.get_mut("CH-100").expect("CH-100").layers[0].material_key = "NOPE".into();
 

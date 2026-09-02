@@ -103,6 +103,22 @@ pub struct Repository {
 impl Repository {
     /// Create a new ground-model file and record the root commit.
     pub fn create(path: impl AsRef<Path>, meta: FileMetadata, author: &str) -> Result<Self> {
+        let created = now_rfc3339();
+        let mut repo = Self::create_empty(path, &ulid::Ulid::new().to_string(), author)?;
+        // Start with a root commit so that HEAD is never null and every later
+        // operation has a parent to diff against.
+        let state = State::empty(meta);
+        repo.materialise(&state, &HashMap::new(), &created)?;
+        repo.commit(author, "Initialise ground-model file")?;
+        Ok(repo)
+    }
+
+    /// Create a file with the schema in place but no history at all.
+    ///
+    /// `file_id` identifies the *project*, not the copy, so a clone keeps the
+    /// id of the file it came from. That is what lets two copies recognise each
+    /// other as the same thing when they sync.
+    pub fn create_empty(path: impl AsRef<Path>, file_id: &str, author: &str) -> Result<Self> {
         let path = path.as_ref();
         if path.exists() {
             return Err(invalid(format!("{} already exists", path.display())));
@@ -110,25 +126,20 @@ impl Repository {
         let conn = Connection::open(path)?;
         Self::init_connection(&conn)?;
 
-        let file_id = ulid::Ulid::new().to_string();
-        let created = now_rfc3339();
         conn.execute(
             "INSERT INTO gm_config (id, file_id, schema_version, created_at, default_author)
              VALUES (1, ?1, ?2, ?3, ?4)",
-            params![file_id, schema::SCHEMA_VERSION, created, author],
+            params![file_id, schema::SCHEMA_VERSION, now_rfc3339(), author],
         )?;
         conn.execute(
             "INSERT INTO gm_ref (name, kind, commit_hash) VALUES ('HEAD', 'head', NULL)",
             [],
         )?;
 
-        let mut repo = Repository { conn, file_id };
-        // Start with a root commit so that HEAD is never null and every later
-        // operation has a parent to diff against.
-        let state = State::empty(meta);
-        repo.materialise(&state, &HashMap::new(), &created)?;
-        repo.commit(author, "Initialise ground-model file")?;
-        Ok(repo)
+        Ok(Repository {
+            conn,
+            file_id: file_id.to_string(),
+        })
     }
 
     /// Open an existing ground-model file.
@@ -210,6 +221,39 @@ impl Repository {
         Ok(hash)
     }
 
+    /// Store a blob by its raw bytes, verifying that they hash to `hash`.
+    ///
+    /// Sync uses this rather than re-serialising the document: copying the
+    /// exact bytes keeps the object's hash valid even if a future build changed
+    /// its serialiser, and it means a corrupt object cannot be laundered into a
+    /// clone by being re-written on the way through.
+    pub fn put_blob_raw(&self, hash: &str, bytes: &[u8]) -> Result<()> {
+        let actual = canon::hash_bytes(bytes);
+        if actual != hash {
+            return Err(Error::CorruptObject {
+                hash: hash.to_string(),
+                actual,
+            });
+        }
+        self.conn.execute(
+            "INSERT OR IGNORE INTO gm_blob (hash, size, content) VALUES (?1, ?2, ?3)",
+            params![hash, bytes.len() as i64, bytes],
+        )?;
+        Ok(())
+    }
+
+    pub fn has_commit(&self, hash: &str) -> Result<bool> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT 1 FROM gm_commit WHERE hash = ?1",
+                params![hash],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
+    }
+
     pub fn has_blob(&self, hash: &str) -> Result<bool> {
         Ok(self
             .conn
@@ -252,12 +296,51 @@ impl Repository {
         )?)
     }
 
-    fn set_head(&self, commit_hash: &str) -> Result<()> {
+    /// Move HEAD without touching the working tree. Sync uses this; ordinary
+    /// callers want [`Repository::checkout`], which also rebuilds the tables.
+    pub fn set_head(&self, commit_hash: &str) -> Result<()> {
         self.conn.execute(
             "UPDATE gm_ref SET commit_hash = ?1 WHERE name = 'HEAD'",
             params![commit_hash],
         )?;
         Ok(())
+    }
+
+    pub fn remotes(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name, url FROM gm_remote ORDER BY name")?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(rows)
+    }
+
+    pub fn remote_url(&self, name: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT url FROM gm_remote WHERE name = ?1",
+                params![name],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn set_remote(&self, name: &str, url: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO gm_remote (name, url) VALUES (?1, ?2)
+             ON CONFLICT(name) DO UPDATE SET url = excluded.url",
+            params![name, url],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_remote(&self, name: &str) -> Result<bool> {
+        Ok(self
+            .conn
+            .execute("DELETE FROM gm_remote WHERE name = ?1", params![name])?
+            > 0)
     }
 
     /// Resolve an abbreviated commit id, or `HEAD`, to a full hash.
@@ -854,16 +937,28 @@ impl Repository {
         if parent.is_some() && self.status()?.is_empty() {
             return Ok(None);
         }
+        let parents = parent.into_iter().collect();
+        Ok(Some(self.commit_with_parents(parents, author, message)?))
+    }
 
+    /// Record the working tree with explicit parents, unconditionally.
+    ///
+    /// Merges need this: a merge commit has two parents, and it must be
+    /// recorded even when the merged result happens to equal one of the sides,
+    /// because the point of the commit is to record that the two histories are
+    /// now joined.
+    pub fn commit_with_parents(
+        &mut self,
+        parents: Vec<String>,
+        author: &str,
+        message: &str,
+    ) -> Result<String> {
         let state = self.working()?;
-        let mut entries = Vec::new();
-
-        let meta_blob = self.put_blob(&serde_json::to_value(&state.file_metadata)?)?;
-        entries.push(ManifestEntry {
+        let mut entries = vec![ManifestEntry {
             kind: KIND_FILE_META.into(),
             key: FILE_META_KEY.into(),
-            blob: meta_blob,
-        });
+            blob: self.put_blob(&serde_json::to_value(&state.file_metadata)?)?,
+        }];
         for (key, material) in &state.materials {
             entries.push(ManifestEntry {
                 kind: KIND_MATERIAL.into(),
@@ -879,13 +974,7 @@ impl Repository {
             });
         }
 
-        let manifest = Manifest::new(
-            parent.iter().cloned().collect(),
-            author,
-            now_rfc3339(),
-            message,
-            entries,
-        );
+        let manifest = Manifest::new(parents, author, now_rfc3339(), message, entries);
         let hash = self.record_commit(&manifest)?;
         self.set_head(&hash)?;
 
@@ -893,7 +982,7 @@ impl Repository {
         // that just happened rather than the pre-commit fallback.
         let state = self.state_at(&hash)?;
         self.write_working(&state)?;
-        Ok(Some(hash))
+        Ok(hash)
     }
 
     /// Store a manifest and index it. Shared by `commit` and by sync, which
